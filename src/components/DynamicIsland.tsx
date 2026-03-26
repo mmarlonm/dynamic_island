@@ -345,6 +345,10 @@ export const DynamicIsland = () => {
       ipc.on('mouse-proximity', (_: any, d: any) => {
         const near = typeof d === 'object' ? d.isNear : d;
         if (near) {
+          // If NOT expanded, ignore proximity triggers if they are in the bubble zone (relX < -185)
+          // This prevents the bubble hover from expanding the main island body.
+          if (!isHoveredRef.current && !isPinnedRef.current && d.relX < -185) return;
+
           if (hoverTimeoutRef.current || isHoveredRef.current) return;
           hoverTimeoutRef.current = setTimeout(() => {
             setIsHoveredRef.current(true);
@@ -364,7 +368,7 @@ export const DynamicIsland = () => {
       });
     }
     (window as any).ipcRenderer?.on('meeting-update', (_: any, data: any) => {
-      if (Date.now() - lastCommandTimeRef.current < 5000) return;
+      if (Date.now() - lastCommandTimeRef.current < 8000) return;
       setMeeting(data);
     });
     return () => clearInterval(clock);
@@ -468,7 +472,7 @@ export const DynamicIsland = () => {
         {/* Call Bubble — Left side, outside hover zone */}
         <AnimatePresence>
           {meeting.isActive && !isExpanded && (
-            <div className="absolute right-full mr-6 top-1 pointer-events-auto translate-y-[-2px]">
+            <div className="absolute right-full mr-10 top-1 pointer-events-auto translate-y-[-2px]">
               <CallBubble 
                 key="call" 
                 app={meeting.app} 
