@@ -115,6 +115,7 @@ function createWindow() {
 
 const singleInstanceLock = app.requestSingleInstanceLock()
 if (!singleInstanceLock) {
+  console.log('[MAIN] Single instance lock failed. Closing new instance...');
   app.quit()
 } else {
   app.on('second-instance', () => {
@@ -229,17 +230,19 @@ try {
     stdio: ['pipe', 'pipe', 'pipe', 'ipc']
   });
 
-  if (mediaProc.stdout) {
-    mediaProc.stdout.on('data', (d: Buffer) => console.log(`[MEDIA-CHILD STDOUT] ${d.toString().trim()}`));
-  }
-  if (mediaProc.stderr) {
-    mediaProc.stderr.on('data', (d: Buffer) => console.error(`[MEDIA-CHILD ERROR] ${d.toString().trim()}`));
-  }
-
   let lastMediaMsg: any = null;
-  mediaProc.on('message', (msg: any) => {
-    if (msg?.type === 'MEDIA_UPDATE') { lastMediaMsg = msg.data; win?.webContents.send('media-update', msg.data); }
-  });
+  if (mediaProc) {
+    if (mediaProc.stdout) {
+      mediaProc.stdout.on('data', (d: Buffer) => console.log(`[MEDIA-CHILD STDOUT] ${d.toString().trim()}`));
+    }
+    if (mediaProc.stderr) {
+      mediaProc.stderr.on('data', (d: Buffer) => console.error(`[MEDIA-CHILD ERROR] ${d.toString().trim()}`));
+    }
+
+    mediaProc.on('message', (msg: any) => {
+      if (msg?.type === 'MEDIA_UPDATE') { lastMediaMsg = msg.data; win?.webContents.send('media-update', msg.data); }
+    });
+  }
 
   // System Notification Polling (Windows Event Logs)
   // v2.2.0: Advanced Meeting & Audio Detection
@@ -248,9 +251,11 @@ try {
   let psMeetBuf = '';
 
   const startMeetPS = () => {
-    console.log('[MEET] Starting persistent meeting detection...');
+    console.log('[MEET] Starting persistent meeting detection loop...');
+    const psPath = path.join(os.tmpdir(), 'notchly-meet.ps1');
     const psCode = `
       $ErrorActionPreference = 'SilentlyContinue'
+      Write-Output "__DEBUG__PS_Script_Internal_Start"
       $code = @'
       using System;
       using System.Runtime.InteropServices;
@@ -291,33 +296,73 @@ try {
 '@
       Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
       while($true) {
-        $micInUse = [MicCheck]::IsInUse()
-        if (-not $micInUse) {
-           $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
-           foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
+        try {
+          $micInUse = [MicCheck]::IsInUse()
+          if (-not $micInUse) {
+            $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
+            foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
+          }
+          # Deep search for meeting windows
+          $allP = Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.MainWindowTitle -match 'Teams|Zoom|Meet|Llamada|Call|Reun|Activo|curso|Talk|Join|Unirse|Vid') }
+          $found = $null
+          $isMeeting = $false
+          foreach($p in $allP) {
+            $t = $p.MainWindowTitle
+            # Broad keywords for active meeting windows
+            if ($t -match 'Llamada|Call|Meeting|Reun|Activo|curso|Talk|Join|Unirse|Meet|Vid|Video|Screen|Sharing') {
+              if ($t -notmatch '^Teams$|^Microsoft Teams$|^Zoom$|^Zoom Cloud Meetings$') {
+                $found = $p
+                $isMeeting = $true
+                break
+              }
+            }
+          }
+          if (-not $found) { $found = $allP | Select-Object -First 1 }
+          
+          # Definitive Mic check fallback: If mic is in use and a meeting app is found, it's a meeting
+          $micInUse = [MicCheck]::IsInUse()
+          if (-not $micInUse) {
+            $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
+            foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
+          }
+          
+          if ($micInUse -and $found -and ($found.ProcessName -match 'Teams|Zoom|ms-teams|Meet')) {
+            $isMeeting = $true
+          }
+          
+          if ($found) { Write-Output "__DEBUG__Found:$($found.MainWindowTitle) [Proc:$($found.ProcessName)] Mic:$micInUse Meet:$isMeeting" }
+          
+          $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
+          $appName = if($found){ 
+            if($found.MainWindowTitle -match 'Teams' -or $found.ProcessName -match 'Teams'){ 'Teams' } 
+            elseif($found.MainWindowTitle -match 'Zoom' -or $found.ProcessName -match 'Zoom'){ 'Zoom' } 
+            elseif($found.MainWindowTitle -match 'Meet|Google'){ 'Meet' } 
+            else { $found.ProcessName } 
+          } else { '' }
+          
+          Write-Output "__MEET__$([string]$micInUse)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)"
+        } catch {
+          Write-Output "__DEBUG__Error:$($_.Exception.Message)"
         }
-        $found = Get-Process | Where-Object { $_.MainWindowTitle -match "Teams|Zoom|Meet|Llamada|Call|Reunión|Webex|Discord|Slack|Skype|WhatsApp|Telegram" -or $_.ProcessName -match "Teams|Zoom|ms-teams|Webex|vMix|Discord|Slack|Skype" } | Select-Object -First 1
-        $isMeeting = if($found){ ($found.MainWindowTitle -match 'Llamada|Call|Meeting|Reunión|Reunion|Activo|En curso|Talk|Join|Unirse') -or ($found.MainWindowTitle.Length -gt 25) } else { $false }
-        $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
-        $appName = if($found){ if($found.MainWindowTitle -match 'Teams' -or $found.ProcessName -match 'Teams'){ 'Teams' } elseif($found.MainWindowTitle -match 'Zoom' -or $found.ProcessName -match 'Zoom'){ 'Zoom' } elseif($found.MainWindowTitle -match 'Meet'){ 'Meet' } else { $found.ProcessName } } else { '' }
-        Write-Output "__MEET__$([string]$micInUse)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)"
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 1
       }
     `;
-    psMeet = spawn('powershell', ['-NoExit', '-NonInteractive', '-Command', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
-    psMeet.stdin!.write(psCode + "\n");
+    fs.writeFileSync(psPath, psCode);
+    psMeet = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-File', psPath], { stdio: ['ignore', 'pipe', 'pipe'] });
     psMeet.stdout!.on('data', (d: Buffer) => {
+      console.log(`[MEET-RAW] ${d.toString().trim()}`); 
       psMeetBuf += d.toString();
       let nl: number;
       while ((nl = psMeetBuf.indexOf('\n')) !== -1) {
         const line = psMeetBuf.slice(0, nl).trim();
         psMeetBuf = psMeetBuf.slice(nl + 1);
+        if (line.startsWith('__DEBUG__')) { console.log('[MEET-DEBUG]', line.replace('__DEBUG__', '')); continue; }
         if (line.startsWith('__MEET__')) {
           const parts = line.replace('__MEET__', '').split('|');
           if (parts.length >= 4) {
             const [micUse, isMeeting, app, btDevice] = parts;
             const isActive = micUse.toLowerCase() === 'true' || isMeeting.toLowerCase() === 'true';
-            console.log(`[MEET-STATUS] mic:${micUse} meet:${isMeeting} app:${app} isActive:${isActive}`);
+            console.log(`[MEET-STATE] isActive:${isActive} mic:${micUse} meeting:${isMeeting} app:${app}`);
             if (isActive) {
               if (app.toLowerCase().includes('zoom')) currentMeetingApp = 'Zoom';
               else if (app.toLowerCase().includes('meet')) currentMeetingApp = 'Meet';
@@ -337,7 +382,7 @@ try {
     psMeet.stderr.on('data', (d: Buffer) => console.error('[MEET-PS ERROR]', d.toString()));
     psMeet.on('exit', () => setTimeout(startMeetPS, 5000));
   };
-  startMeetPS();
+  setTimeout(startMeetPS, 3000);
 
   // Notification Polling (Windows Event Logs)
   setInterval(() => {

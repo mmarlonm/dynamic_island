@@ -111,7 +111,7 @@ const NotifBubble = ({ count, onClick }: { count: number; onClick: () => void })
   </motion.div>
 );
 // ── Meeting status bubble (pill-mode - Left Side) ───────────────────────────
-const CallBubble = ({ app, micMuted, onClick }: { app: string; micMuted: boolean; onClick: () => void }) => {
+const CallBubble = ({ app, micMuted, onClick, onEndCall }: { app: string; micMuted: boolean; onClick: () => void; onEndCall: () => void }) => {
   const [isHovered, setIsHovered] = useState(false);
   const ipc = (window as any).ipcRenderer;
   const btnClass = "w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/10 active:scale-90 border border-transparent hover:border-white/10";
@@ -160,7 +160,7 @@ const CallBubble = ({ app, micMuted, onClick }: { app: string; micMuted: boolean
               <Video className="w-4 h-4 text-white" />
             </button>
             <button 
-              onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'endCall'); }} 
+              onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'endCall'); onEndCall(); }} 
               className={clsx(btnClass, "bg-red-500/20 hover:bg-red-500/80 group")}
             >
               <PhoneOff className="w-4 h-4 text-red-400 group-hover:text-white" />
@@ -467,6 +467,7 @@ export const DynamicIsland = () => {
                 app={meeting.app} 
                 micMuted={meeting.micMuted} 
                 onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} 
+                onEndCall={() => setMeeting(m => ({ ...m, isActive: false }))}
               />
             </div>
           )}
