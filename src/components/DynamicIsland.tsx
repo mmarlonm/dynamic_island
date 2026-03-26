@@ -111,7 +111,7 @@ const NotifBubble = ({ count, onClick }: { count: number; onClick: () => void })
   </motion.div>
 );
 // ── Meeting status bubble (pill-mode - Left Side) ───────────────────────────
-const CallBubble = ({ app, micActive, camActive, onClick, onEndCall }: { app: string; micActive: boolean; camActive: boolean; onClick: () => void; onEndCall: () => void }) => {
+const CallBubble = ({ app, micActive, camActive, onClick, onCommand, onEndCall }: { app: string; micActive: boolean; camActive: boolean; onClick: () => void; onCommand: (cmd: string) => void; onEndCall: () => void }) => {
   const [isHovered, setIsHovered] = useState(false);
   const ipc = (window as any).ipcRenderer;
   const btnClass = "w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/10 active:scale-90 border border-transparent hover:border-white/10";
@@ -148,19 +148,19 @@ const CallBubble = ({ app, micActive, camActive, onClick, onEndCall }: { app: st
             className="flex items-center gap-2 w-full justify-center px-2"
           >
             <button 
-              onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'toggleMic'); }} 
+              onClick={(e) => { e.stopPropagation(); onCommand('toggleMic'); }} 
               className={clsx(btnClass, micActive ? "text-green-400" : "text-white opacity-40")}
             >
               {micActive ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
             </button>
             <button 
-              onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'toggleCam'); }} 
+              onClick={(e) => { e.stopPropagation(); onCommand('toggleCam'); }} 
               className={clsx(btnClass, camActive ? "text-green-400" : "text-white opacity-40")}
             >
               <Video className="w-4 h-4" />
             </button>
             <button 
-              onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'endCall'); onEndCall(); }} 
+              onClick={(e) => { e.stopPropagation(); onCommand('endCall'); onEndCall(); }} 
               className={clsx(btnClass, "bg-red-500/20 hover:bg-red-500/80 group")}
             >
               <PhoneOff className="w-4 h-4 text-red-400 group-hover:text-white" />
@@ -429,6 +429,11 @@ export const DynamicIsland = () => {
   }, [isExpanded, showSettings, activeView]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+  const handleMeetingCommand = (cmd: string) => {
+    if (cmd === 'toggleMic') setMeeting(p => ({ ...p, micActive: !p.micActive }));
+    if (cmd === 'toggleCam') setMeeting(p => ({ ...p, camActive: !p.camActive }));
+    (window as any).ipcRenderer?.invoke('meeting-command', cmd);
+  };
   const openApp   = (app: string) => (window as any).ipcRenderer?.invoke('open-app', app);
   const toggleTab = (tab: string) => setVisibleTabs(p => p.includes(tab) ? p.filter(x => x !== tab) : [...p, tab]);
   const fmtTime   = (s: number) => {
@@ -468,6 +473,7 @@ export const DynamicIsland = () => {
                 micActive={meeting.micActive} 
                 camActive={meeting.camActive}
                 onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} 
+                onCommand={handleMeetingCommand}
                 onEndCall={() => setMeeting(m => ({ ...m, isActive: false }))}
               />
             </div>
@@ -808,25 +814,25 @@ export const DynamicIsland = () => {
 
                 <div className="flex items-center gap-5">
                   <button 
-                    onClick={() => (window as any).ipcRenderer?.invoke('meeting-command', 'toggleMic')}
+                    onClick={() => handleMeetingCommand('toggleMic')}
                     className={clsx(
-                      "w-16 h-16 rounded-full flex items-center justify-center transition-all border shadow-xl",
+                      "w-16 h-16 rounded-full flex items-center justify-center transition-all border shadow-xl hover:scale-105 active:scale-95",
                       meeting.micActive ? "bg-green-500 text-white border-green-400" : "bg-white/10 border-white/20 hover:bg-white/20"
                     )}
                   >
                     {meeting.micActive ? <Mic className="w-7 h-7" /> : <MicOff className="w-7 h-7" />}
                   </button>
                   <button 
-                    onClick={() => (window as any).ipcRenderer?.invoke('meeting-command', 'toggleCam')}
+                    onClick={() => handleMeetingCommand('toggleCam')}
                     className={clsx(
-                      "w-16 h-16 rounded-full flex items-center justify-center transition-all border shadow-xl",
+                      "w-16 h-16 rounded-full flex items-center justify-center transition-all border shadow-xl hover:scale-105 active:scale-95",
                       meeting.camActive ? "bg-green-500 text-white border-green-400" : "bg-white/10 border-white/20 hover:bg-white/20"
                     )}
                   >
                     <Video className="w-7 h-7" />
                   </button>
                   <button 
-                    onClick={() => (window as any).ipcRenderer?.invoke('meeting-command', 'endCall')}
+                    onClick={() => handleMeetingCommand('endCall')}
                     className="w-20 h-20 rounded-full flex items-center justify-center bg-red-600 text-white shadow-2xl shadow-red-600/40 hover:scale-110 active:scale-95 transition-all"
                   >
                     <PhoneOff className="w-9 h-9" />
