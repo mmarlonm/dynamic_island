@@ -101,8 +101,8 @@ function createWindow() {
     const relY = y - b.y;
     const [winW, winH] = win.getSize();
     
-    // Final Anti-Toques: 120px width limit (240 total), 35px height limit (top half only)
-    const widthLimit = isExpandedMode ? 400 : 120; 
+    // Final Anti-Toques: 200px width limit (enough for pill 180 + bubble spacing)
+    const widthLimit = isExpandedMode ? 400 : 200; 
     const heightLimit = isExpandedMode ? winH + 40 : 35; 
 
     // relY >= 0 ensures we don't trigger if the mouse is "above" the screen
@@ -111,113 +111,6 @@ function createWindow() {
     win.setIgnoreMouseEvents(!isInside, { forward: true });
     win.webContents.send('mouse-proximity', { isNear: isInside, relX, relY });
   }, 35);
-
-  // v2.1.0: Advanced Meeting & Audio Detection
-  const checkSystemStatus = () => {
-    if (!win || win.isDestroyed()) return;
-
-    // Nuclear PowerShell Check: Detect from process, title, and known apps
-    const script = `
-      $ErrorActionPreference = 'SilentlyContinue';
-      $titles = ''; $cam = 'false'; $mic = 'false'; $audio = 'None'; $wifi = 'false'; $bt = 'false';
-      
-      try {
-        $proc = Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.ProcessName -match 'Teams|Zoom|ms-teams|chrome|msedge|brave|opera|firefox|Meet|Llamada|Reunión|Call|Hangout|Webex|Session') };
-        if ($proc) { 
-           $titles = ($proc.MainWindowTitle | Where-Object { $_ -ne $null }) -join '+'
-        }
-      } catch {}
-
-      try {
-        $cam = ((Get-CimInstance Win32_PnPEntity | Where-Object { $_.Service -eq 'usbvideo' -or $_.Caption -match 'Camera' }).Count -gt 0).ToString()
-      } catch {}
-
-      try {
-        $mic = ((Get-CimInstance Win32_PnPEntity | Where-Object { $_.Caption -match 'Microphone|Micr|Audio|Headset|Hands-Free' }).Count -gt 0).ToString()
-      } catch {}
-
-      try {
-        $audio = (Get-CimInstance Win32_SoundDevice | Where-Object { $_.Status -eq 'OK' }).Name -join '+'
-        if (-not $audio) { $audio = 'None' }
-      } catch {}
-
-      try {
-        $wifi = ((Get-NetAdapter | Where-Object { $_.Name -match 'Wi-Fi' }).Status -eq 'Up').ToString()
-      } catch {}
-
-      try {
-        Add-Type -AssemblyName Windows.Devices.Radios -ErrorAction SilentlyContinue;
-        $radios = [Windows.Devices.Radios.Radio]::GetRadiosAsync().GetAwaiter().GetResult();
-        $bt = (($radios | Where-Object { $_.Kind -eq 'Bluetooth' }).State -eq 'On').ToString()
-      } catch {}
-
-      Write-Output ($titles + '###' + $cam + '###' + $mic + '###' + $audio + '###' + $wifi + '###' + $bt);
-    `.trim();
-
-    const buffer = Buffer.from(script, 'utf16le');
-    const base64 = buffer.toString('base64');
-
-    exec(`powershell -EncodedCommand ${base64}`, { timeout: 8000 }, (err: any, stdout: string) => {
-      const out = stdout?.trim();
-      if (!out) return;
-
-      const parts = out.split('###').map(p => p.trim());
-      if (parts.length < 6) return;
-
-      const [titlesRaw, hasCamStr, hasMicStr, audioDeviceStr, wifiStr, btStr] = parts;
-      const hasCam = hasCamStr.toLowerCase() === 'true';
-      const hasMic = hasMicStr.toLowerCase() === 'true';
-      const isWifi = wifiStr.toLowerCase() === 'true';
-      const isBt = btStr.toLowerCase() === 'true';
-
-      // 1. Process Meetings - Detect app type (Highly restrictive regex)
-      const teamsRegex = /\| Microsoft Teams$|Microsoft Teams$/i;
-      const zoomRegex = /Zoom Meeting|Video Zoom/i;
-      const meetRegex = /Meet - |Google Meet/i;
-
-      const isTeams = teamsRegex.test(titlesRaw);
-      const isZoom = zoomRegex.test(titlesRaw);
-      const isMeet = meetRegex.test(titlesRaw);
-      const active = isTeams || isZoom || isMeet;
-
-      let meetingApp: 'Teams' | 'Zoom' | 'Meet' = 'Teams';
-      if (isZoom) meetingApp = 'Zoom';
-      else if (isMeet) meetingApp = 'Meet';
-
-      const lowTitles = titlesRaw.toLowerCase();
-      if (active !== isInMeetingApp) {
-        isInMeetingApp = active;
-        currentMeetingApp = meetingApp;
-        win?.webContents.send('meeting-status', { active, app: meetingApp });
-      }
-
-      if (active) {
-        const isMuted = lowTitles.includes('muted') || lowTitles.includes('silenciado');
-        const isVideoOff = lowTitles.includes('video off') || lowTitles.includes('desactivada') || lowTitles.includes('cámara desactivada');
-        win?.webContents.send('meeting-info-update', { isMuted, isVideoOff });
-      }
-
-      if (hasCam !== lastHasCam || hasMic !== lastHasMic) {
-        lastHasCam = hasCam;
-        lastHasMic = hasMic;
-        win?.webContents.send('hardware-status', { hasCam, hasMic });
-      }
-
-      const type = (audioDeviceStr.toLowerCase().includes('headset') || audioDeviceStr.toLowerCase().includes('headphones') || audioDeviceStr.toLowerCase().includes('hearing')) ? 'Headphones' : 'Speaker';
-      if (type !== audioOutputDevice) {
-        audioOutputDevice = type;
-        win?.webContents.send('audio-output', type);
-      }
-
-      if (isWifi !== lastWifi || isBt !== lastBt) {
-        lastWifi = isWifi; lastBt = isBt;
-        win?.webContents.send('radio-status', { wifi: isWifi, bluetooth: isBt });
-      }
-    });
-  };
-
-  setInterval(checkSystemStatus, 3500);
-  checkSystemStatus();
 }
 
 const singleInstanceLock = app.requestSingleInstanceLock()
@@ -345,33 +238,71 @@ try {
   });
 
   // System Notification Polling (Windows Event Logs)
-  // Notification polling — reads recent App event log entries
+  // v2.2.0: Advanced Meeting & Audio Detection
   let lastNotifId = '';
+  let lastMeetingState = false;
   setInterval(() => {
-    const psNotif = `
-      try {
-        $noise = 'SideBySide','VSS','ESENT','MSExchange','Security-SPP','Desktop Window Manager','.NET Runtime','Windows Error Reporting','DistributedCOM','Service Control Manager';
-        $e = Get-WinEvent -LogName Application -MaxEvents 5 -ErrorAction SilentlyContinue | 
-             Where-Object { $_.LevelDisplayName -eq 'Information' -and $noise -notcontains $_.ProviderName } |
-             Select-Object -First 1 -Property TimeCreated, ProviderName, Message;
-        if ($e) {
-          $msg = ($e.Message -split '\n')[0] -replace '[^\x20-\x7EáéíóúÁÉÍÓÚñÑ]', '';
-          $out = $e.TimeCreated.ToString('o') + '|||' + $e.ProviderName + '|||' + $msg;
-          Write-Output $out
-        }
-      } catch {}
+    const psMeeting = `
+      $micInUse = $false
+      $reg = "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone"
+      if (Test-Path $reg) {
+        $micInUse = (Get-ChildItem $reg -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0
+      }
+      $proc = Get-Process | Where-Object { $_.MainWindowTitle -match "Teams|Zoom|Meet|Llamada|Call|Reunión|Webex|Discord" -or $_.ProcessName -match "Teams|Zoom|ms-teams|Webex|vMix|Discord" } | Select-Object -First 1
+      $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
+      
+      $appName = if ($proc) { 
+          if ($proc.MainWindowTitle -match 'Teams' -or $proc.ProcessName -match 'Teams') { 'Teams' }
+          elseif ($proc.MainWindowTitle -match 'Zoom' -or $proc.ProcessName -match 'Zoom') { 'Zoom' }
+          elseif ($proc.MainWindowTitle -match 'Meet') { 'Meet' }
+          else { $proc.ProcessName }
+      } else { '' }
+      
+      $out = [string]$micInUse + "|||" + [string]$appName + "|||" + [string]$bt.FriendlyName
+      Write-Output $out
     `.trim();
-    const buf = Buffer.from(psNotif, 'utf16le');
-    const b64 = buf.toString('base64');
-    exec(`powershell -EncodedCommand ${b64}`, { timeout: 6000 }, (err, stdout) => {
+
+    exec(`powershell -Command "${psMeeting.replace(/\n/g, ' ')}"`, (err, stdout) => {
+      // console.log('[MEETING-POLL]', stdout?.trim());
       if (err || !stdout?.trim()) return;
-      const [id, app, msg] = stdout.trim().split('|||');
+      const parts = stdout.trim().split('|||');
+      if (parts.length < 3) return;
+      const [micUse, app, btDevice] = parts;
+      const isActive = micUse.toLowerCase() === 'true' || !!app;
+      
+      if (isActive) {
+        if (app.toLowerCase().includes('zoom')) currentMeetingApp = 'Zoom';
+        else if (app.toLowerCase().includes('meet')) currentMeetingApp = 'Meet';
+        else currentMeetingApp = 'Teams';
+      }
+
+      win?.webContents.send('meeting-update', {
+        isActive,
+        app: app || (isActive ? 'Llamada Activa' : ''),
+        device: btDevice || 'Sistema',
+        micMuted: false 
+      });
+    });
+
+    // Also poll standard notifications
+    const psNotif = `
+      $noise = 'SideBySide','VSS','ESENT','MSExchange','Security-SPP','Desktop Window Manager','.NET Runtime','Windows Error Reporting','DistributedCOM','Service Control Manager';
+      $e = Get-WinEvent -LogName Application -MaxEvents 5 -ErrorAction SilentlyContinue | 
+           Where-Object { $_.LevelDisplayName -eq 'Information' -and $noise -notcontains $_.ProviderName } |
+           Select-Object -First 1 -Property TimeCreated, ProviderName, Message;
+      if ($e) {
+        $msg = ($e.Message -split '\\n')[0] -replace '[^\\x20-\\x7EáéíóúÁÉÍÓÚñÑ]', '';
+        Write-Output ($e.TimeCreated.ToString('o') + '|||' + $e.ProviderName + '|||' + $msg)
+      }
+    `.trim();
+    exec(`powershell -Command "${psNotif.replace(/\n/g, ' ')}"`, (err, stdout) => {
+      if (err || !stdout?.trim()) return;
+      const [id, appStr, msg] = stdout.trim().split('|||');
       if (!id || id === lastNotifId) return;
       lastNotifId = id;
-      if (!app || !msg) return;
-      win?.webContents.send('notification', { app: app.trim(), text: msg.trim().slice(0, 100) });
+      win?.webContents.send('notification', { app: appStr, text: msg });
     });
-  }, 8000);
+  }, 5000);
   ipcMain.handle('get-current-media', async () => {
     if (lastMediaMsg) return lastMediaMsg.data;
     // Wait for the media process to send its first update
@@ -491,7 +422,44 @@ try {
     else exec(`start "" "${appName}"`);
     return true;
   });
-  app.on('before-quit', () => mediaProc.kill());
+  ipcMain.handle('meeting-command', async (_, cmd) => {
+    if (cmd === 'toggleMic') {
+       const ps = `
+$code = @'
+using System.Runtime.InteropServices;
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IVol { int f1(); int f2(); int f3(); int f4(); int SetMute([MarshalAs(UnmanagedType.Bool)] bool m, System.Guid g); int GetMute(out bool m); }
+[Guid("D6660639-8874-4034-AD23-37284F510F4F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IDev { int Activate(ref System.Guid id, int cls, System.IntPtr p, out IVol v); }
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IEnum { int GetDefaultAudioEndpoint(int df, int r, out IDev e); }
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDev { }
+public class Mic {
+    public static void Toggle() {
+        var e = (IEnum)new MMDev(); IDev d; 
+        e.GetDefaultAudioEndpoint(1, 0, out d); // 1 is eCapture
+        IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+        d.Activate(ref iid, 23, System.IntPtr.Zero, out v);
+        bool m; v.GetMute(out m); v.SetMute(!m, System.Guid.Empty);
+    }
+}
+'@
+Add-Type -TypeDefinition $code; [Mic]::Toggle()
+`.trim().replace(/"/g, '\"');
+       exec(`powershell -Command "${ps}"`);
+    } else if (cmd === 'toggleCam') {
+       // Hotkey fallback for Camera
+       if (currentMeetingApp === 'Zoom') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('%v')"`);
+       else if (currentMeetingApp === 'Meet') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^e')"`);
+       else exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^+o')"`);
+    } else if (cmd === 'endCall') {
+       if (currentMeetingApp === 'Zoom') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('%q'); Start-Sleep -m 200; (new-object -com wscript.shell).SendKeys('{ENTER}')"`);
+       else if (currentMeetingApp === 'Meet') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^w')"`);
+       else exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^+h')"`);
+    }
+  });
+
+  app.on('before-quit', () => mediaProc?.kill());
 } catch (err) { console.error('Failed to init media process:', err); }
 
 app.on('window-all-closed', () => {

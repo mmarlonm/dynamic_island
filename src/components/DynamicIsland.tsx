@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
-  EyeOff, BellOff, Timer, RotateCcw
+  EyeOff, BellOff, Timer, RotateCcw, Video, Mic, MicOff, PhoneOff
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -108,6 +108,31 @@ const NotifBubble = ({ count, onClick }: { count: number; onClick: () => void })
       <div className="relative z-10 flex flex-col items-center leading-none">
         <Bell className="w-4 h-4 text-blue-400" />
         <span className="text-[11px] font-black text-white tabular-nums mt-0.5">{count > 9 ? '9+' : count}</span>
+      </div>
+    </div>
+  </motion.div>
+);
+// ── Meeting status bubble (pill-mode - Left Side) ───────────────────────────
+const CallBubble = ({ app, micMuted, onClick }: { app: string; micMuted: boolean; onClick: () => void }) => (
+  <motion.div
+    initial={{ scale: 0, opacity: 0, x: 20 }}
+    animate={{ scale: 1, opacity: 1, x: 0 }}
+    exit={{ scale: 0, opacity: 0, x: 20 }}
+    className="absolute right-full mr-4 pointer-events-auto select-none cursor-pointer"
+    style={{ top: 4 }}
+    onClick={onClick}
+  >
+    <div className="relative w-14 h-14 flex items-center justify-center">
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 56 56">
+        <circle cx="28" cy="28" r="22" strokeWidth="2" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.3)" />
+        <motion.circle cx="28" cy="28" r="22" strokeWidth="2" fill="transparent" stroke="#22c55e"
+          animate={{ strokeDasharray: ["1,138", "138,1", "1,138"], rotate: [0, 360] }}
+          transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+        />
+      </svg>
+      <div className="relative z-10 flex flex-col items-center leading-none text-green-500">
+        {micMuted ? <MicOff className="w-4 h-4 text-red-500" /> : <Video className="w-4 h-4" />}
+        <span className="text-[6px] font-black uppercase mt-1 tracking-tighter w-10 truncate text-center">{app}</span>
       </div>
     </div>
   </motion.div>
@@ -225,17 +250,19 @@ export const DynamicIsland = () => {
   const [isHovered, setIsHovered]     = useState(false);
   const [isPinned, setIsPinned]       = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas'>('Resumen');
+  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada'>('Resumen');
   const [lang, setLang]               = useState<'es' | 'en' | 'zh'>('es');
   const [isLightMode, setIsLightMode] = useState(false);
   const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>('Moderno');
-  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Notificación', 'Herramientas']);
+  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas']);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '' });
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
   const [systemInfo, setSystemInfo]   = useState({ cpu: 12, ram: 45, net: 2.1 });
   const [weather, setWeather]         = useState({ temp: '22' });
-  const [volume, setVolume]           = useState(70); // 0-100 system volume
+  const [volume, setVolume] = useState(50);
+  const [meeting, setMeeting] = useState({ isActive: false, app: '', device: '', micMuted: false });
+  // 0-100 system volume
 
   // Timer state
   const [timerTime, setTimerTime]     = useState(0);
@@ -259,9 +286,9 @@ export const DynamicIsland = () => {
   useEffect(() => { isHoveredRef.current = isHovered; }, [isHovered]);
 
   const T: Record<string, any> = {
-    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar' },
-    en: { resumen:'Summary', sistema:'System', multimedia:'Media', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset' },
-    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置' },
+    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar' },
+    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset' },
+    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置' },
   };
   const t = T[lang] ?? T.es;
 
@@ -301,6 +328,10 @@ export const DynamicIsland = () => {
         }
       });
     }
+    (window as any).ipcRenderer?.on('meeting-update', (_: any, data: any) => {
+      console.log('Frontend Meeting Update:', data);
+      setMeeting(data);
+    });
     return () => clearInterval(clock);
   }, []);
 
@@ -356,10 +387,10 @@ export const DynamicIsland = () => {
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     if (!ipc) return;
-    const h = showSettings ? 600 : isExpanded ? (activeView === 'Herramientas' ? 480 : 220) : 80;
+    const h = showSettings ? 600 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 480 : 220) : 80;
     ipc.send('set-window-height', h);
-    // Robust expansion report: true if any state implies expansion
-    const effectivelyExpanded = isExpanded || showSettings || (activeView && activeView !== 'Resumen');
+    // Robust expansion report: true ONLY if actually expanded (hovered/pinned)
+    const effectivelyExpanded = isExpanded || showSettings;
     ipc.send('set-is-expanded', !!effectivelyExpanded);
   }, [isExpanded, showSettings, activeView]);
 
@@ -390,8 +421,8 @@ export const DynamicIsland = () => {
   const showNotifBubble = notifications.length > 0 && !isExpanded;
 
   return (
-    <div className="fixed top-0 left-1/2 -translate-x-1/2 flex flex-row items-start pointer-events-none select-none z-[999]">
-
+    <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999]">
+      
       {/* ── Island body ── */}
       <motion.div
         onMouseEnter={() => setIsHovered(true)}
@@ -403,10 +434,16 @@ export const DynamicIsland = () => {
         }}
         animate={{
           width: showSettings ? 720 : isExpanded ? 680 : 360,
-          height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' ? 450 : 180) : 66,
+          height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : 66,
         }}
         transition={{ type: 'spring', stiffness: 220, damping: 26 }}
       >
+        {/* Call Bubble (Absolute Left of body) */}
+        <AnimatePresence>
+          {meeting.isActive && !isExpanded && (
+            <CallBubble key="call" app={meeting.app} micMuted={meeting.micMuted} onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} />
+          )}
+        </AnimatePresence>
         {/* Wings — pinned inside motion.div so they always track its corners */}
         <svg width={WING_R} height={WING_R} shapeRendering="geometricPrecision" className="absolute top-0 pointer-events-none z-[1]" style={{ left: -WING_R, display: 'block' }}>
           <path d={`M 0 0 H ${WING_R} V ${WING_R} A ${WING_R} ${WING_R} 0 0 0 0 0 Z`} fill={bg} />
@@ -474,7 +511,7 @@ export const DynamicIsland = () => {
           {/* Tab bar */}
           <div className={clsx('flex items-center justify-between mb-2 pb-2 border-b shrink-0', isLightMode ? 'border-black/5' : 'border-white/5')}>
             <div className="flex gap-1 items-center">
-              {(['Resumen', 'Sistema', 'Multimedia', 'Notificación', 'Herramientas'] as const).map(v =>
+              {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas'] as const).map(v =>
                 visibleTabs.includes(v) && (
                   <button
                     key={v}
@@ -491,6 +528,7 @@ export const DynamicIsland = () => {
                     {v === 'Multimedia'   && <Volume2   className="w-2.5 h-2.5" />}
                     {v === 'Notificación' && <Bell      className="w-2.5 h-2.5" />}
                     {v === 'Herramientas' && <Timer     className="w-2.5 h-2.5" />}
+                    {v === 'Llamada'      && <Video      className="w-2.5 h-2.5" />}
                     {t[v === 'Notificación' ? 'notificacion' : v.toLowerCase()] || v}
                   </button>
                 )
@@ -698,6 +736,49 @@ export const DynamicIsland = () => {
               </div>
             )}
 
+            {/* LLAMADA / REUNIÓN */}
+            {activeView === 'Llamada' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
+                <div className="flex flex-col items-center gap-2">
+                  <motion.div 
+                    animate={{ scale: [1, 1.05, 1], opacity: [0.8, 1, 0.8] }}
+                    transition={{ duration: 3, repeat: Infinity }}
+                    className="w-20 h-20 rounded-[32px] bg-green-500/20 flex items-center justify-center text-green-500 border border-green-500/20 shadow-2xl"
+                  >
+                    <Video className="w-10 h-10" />
+                  </motion.div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-[20px] font-black tracking-tight">{meeting.app || 'Llamada Activa'}</span>
+                    <span className="text-[11px] font-bold opacity-40 uppercase tracking-[0.2em]">{meeting.device}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-5">
+                  <button 
+                    onClick={() => (window as any).ipcRenderer?.invoke('meeting-command', 'toggleMic')}
+                    className={clsx(
+                      "w-16 h-16 rounded-full flex items-center justify-center transition-all border shadow-xl",
+                      meeting.micMuted ? "bg-red-500 text-white border-red-600" : "bg-white/10 border-white/20 hover:bg-white/20"
+                    )}
+                  >
+                    {meeting.micMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+                  </button>
+                  <button 
+                    onClick={() => (window as any).ipcRenderer?.invoke('meeting-command', 'toggleCam')}
+                    className="w-16 h-16 rounded-full flex items-center justify-center transition-all border border-white/20 bg-white/10 hover:bg-white/20 shadow-xl"
+                  >
+                    <Video className="w-7 h-7" />
+                  </button>
+                  <button 
+                    onClick={() => (window as any).ipcRenderer?.invoke('meeting-command', 'endCall')}
+                    className="w-20 h-20 rounded-full flex items-center justify-center bg-red-600 text-white shadow-2xl shadow-red-600/40 hover:scale-110 active:scale-95 transition-all"
+                  >
+                    <PhoneOff className="w-9 h-9" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* HERRAMIENTAS */}
             {activeView === 'Herramientas' && (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -786,7 +867,7 @@ export const DynamicIsland = () => {
                 <div className="flex flex-col gap-4 p-8" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
                   <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.visibility}</span>
                   <div className="flex flex-col gap-2">
-                    {(['Resumen', 'Sistema', 'Multimedia', 'Notificación', 'Herramientas'] as const).map(v => (
+                    {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas'] as const).map(v => (
                       <button
                         key={v}
                         onClick={() => toggleTab(v)}
