@@ -305,27 +305,26 @@ try {
           # Deep search for meeting windows - optimized
           $keywords = 'Llamada|Call|Meeting|Reun|Activo|curso|Talk|Join|Unirse|Meet|Vid|Video|Screen|Sharing'
           $allP = Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.MainWindowTitle -match $keywords) }
-          $found = $null
-          $isMeeting = $false
-          foreach($p in $allP) {
-            $t = $p.MainWindowTitle
-            if ($t -match $keywords -and $t -notmatch '^Teams$|^Microsoft Teams$|^Zoom$|^Zoom Cloud Meetings$') {
-              $found = $p
-              $isMeeting = $true
-              break
-            }
-          }
-          if (-not $found) { $found = $allP | Select-Object -First 1 }
+          $found = $allP | Select-Object -First 1
+          $isMeeting = if ($found) { $true } else { $false }
           
-          # Definitive Mic check fallback
+          # Definitive Mic check
           $micInUse = [MicCheck]::IsInUse()
+          if (-not $micInUse) {
+             $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
+             foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
+          }
+          
+          # Camera check
+          $camInUse = $false
+          $camRegs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam")
+          foreach ($r in $camRegs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $camInUse = $true; break } } }
+          
           if ($micInUse -and $found -and ($found.ProcessName -match 'Teams|Zoom|ms-teams|Meet')) {
             $isMeeting = $true
           }
           
-          if ($isMeeting) { 
-             Write-Output "__DEBUG__ACTIVE: $($found.MainWindowTitle) [Mic:$micInUse]" 
-          }
+          if ($isMeeting) { Write-Output "__DEBUG__ACTIVE: $($found.MainWindowTitle) [Mic:$micInUse|Cam:$camInUse]" }
           
           $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
           $appName = if($found){ 
@@ -335,7 +334,7 @@ try {
             else { $found.ProcessName } 
           } else { '' }
           
-          Write-Output "__MEET__$([string]$micInUse)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)"
+          Write-Output "__MEET__$([string]$micInUse)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)|$([string]$camInUse)"
         } catch {
           Write-Output "__DEBUG__Error:$($_.Exception.Message)"
         }
@@ -354,21 +353,23 @@ try {
         if (line.startsWith('__DEBUG__')) { console.log('[MEET-DEBUG]', line.replace('__DEBUG__', '')); continue; }
         if (line.startsWith('__MEET__')) {
           const parts = line.replace('__MEET__', '').split('|');
-          if (parts.length >= 4) {
-            const [micUse, isMeeting, app, btDevice] = parts;
-            const isActive = micUse.toLowerCase() === 'true' || isMeeting.toLowerCase() === 'true';
-            console.log(`[MEET-STATE] isActive:${isActive} mic:${micUse} meeting:${isMeeting} app:${app}`);
+          if (parts.length >= 5) {
+            const [micUse, isMeet, app, btDevice, camUse] = parts;
+            const isActive = micUse.toLowerCase() === 'true' || isMeet.toLowerCase() === 'true' || camUse.toLowerCase() === 'true';
+            
             if (isActive) {
               if (app.toLowerCase().includes('zoom')) currentMeetingApp = 'Zoom';
               else if (app.toLowerCase().includes('meet')) currentMeetingApp = 'Meet';
               else if (app.toLowerCase().includes('teams')) currentMeetingApp = 'Teams';
               else currentMeetingApp = (app || 'Llamada');
             }
+            
             win?.webContents.send('meeting-update', {
               isActive,
               app: isActive ? (app || 'Llamada Activa') : '', 
               device: btDevice || 'Sistema',
-              micMuted: false
+              micActive: micUse.toLowerCase() === 'true',
+              camActive: camUse.toLowerCase() === 'true'
             });
           }
         }
@@ -500,36 +501,15 @@ try {
 
   ipcMain.handle('meeting-command', async (_event, cmd: string) => {
     if (cmd === 'toggleMic') {
-       const ps = `
-$code = @'
-using System.Runtime.InteropServices;
-[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IVol { int f1(); int f2(); int f3(); int f4(); int SetMute([MarshalAs(UnmanagedType.Bool)] bool m, System.Guid g); int GetMute(out bool m); }
-[Guid("D6660639-8874-4034-AD23-37284F510F4F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IDev { int Activate(ref System.Guid id, int cls, System.IntPtr p, out IVol v); }
-[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IEnum { int GetDefaultAudioEndpoint(int df, int r, out IDev e); }
-[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDev { }
-public class Mic {
-    public static void Toggle() {
-        var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(1, 0, out d);
-        IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-        if (d.Activate(ref iid, 23, System.IntPtr.Zero, out v) == 0) {
-          bool m; v.GetMute(out m); v.SetMute(!m, System.Guid.Empty);
-        }
-    }
-}
-'@
-Add-Type -TypeDefinition $code; [Mic]::Toggle()
-`.trim();
-       exec(`powershell -Command "${ps.replace(/\n/g, ' ')}"`);
+       const keys = currentMeetingApp === 'Zoom' ? '%a' : (currentMeetingApp === 'Meet' ? '^d' : '^+m');
+       await sendKeyToMeeting(keys);
     } else if (cmd === 'toggleCam') {
        const keys = currentMeetingApp === 'Zoom' ? '%v' : (currentMeetingApp === 'Meet' ? '^e' : '^+o');
-       exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('${keys}')"`);
+       await sendKeyToMeeting(keys);
     } else if (cmd === 'endCall') {
-       if (currentMeetingApp === 'Zoom') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('%q'); Start-Sleep -m 200; (new-object -com wscript.shell).SendKeys('{ENTER}')"`);
-       else if (currentMeetingApp === 'Meet') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^w')"`);
-       else exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^+h')"`);
+       if (currentMeetingApp === 'Zoom') { await sendKeyToMeeting('%q'); setTimeout(() => sendKeyToMeeting('{ENTER}'), 200); }
+       else if (currentMeetingApp === 'Meet') await sendKeyToMeeting('^w');
+       else await sendKeyToMeeting('^+h');
     }
   });
 

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
-  EyeOff, BellOff, Timer, RotateCcw, Video, Mic, MicOff, PhoneOff
+  EyeOff, BellOff, Timer, RotateCcw, Video, Mic, MicOff, Phone, PhoneOff
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -111,7 +111,7 @@ const NotifBubble = ({ count, onClick }: { count: number; onClick: () => void })
   </motion.div>
 );
 // ── Meeting status bubble (pill-mode - Left Side) ───────────────────────────
-const CallBubble = ({ app, micMuted, onClick, onEndCall }: { app: string; micMuted: boolean; onClick: () => void; onEndCall: () => void }) => {
+const CallBubble = ({ app, micActive, camActive, onClick, onEndCall }: { app: string; micActive: boolean; camActive: boolean; onClick: () => void; onEndCall: () => void }) => {
   const [isHovered, setIsHovered] = useState(false);
   const ipc = (window as any).ipcRenderer;
   const btnClass = "w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/10 active:scale-90 border border-transparent hover:border-white/10";
@@ -136,9 +136,9 @@ const CallBubble = ({ app, micMuted, onClick, onEndCall }: { app: string; micMut
           <motion.div 
             key="icon" 
             initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
-            className="flex flex-col items-center leading-none text-green-500"
+            className={clsx("flex flex-col items-center leading-none", (micActive || camActive) ? "text-green-500" : "text-zinc-500")}
           >
-             {micMuted ? <MicOff className="w-4 h-4 text-red-500" /> : <Video className="w-4 h-4" />}
+             {micActive ? <Mic className="w-4 h-4" /> : (camActive ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />)}
              <span className="text-[6px] font-black uppercase mt-1 tracking-tighter w-10 truncate text-center">{app}</span>
           </motion.div>
         ) : (
@@ -149,15 +149,15 @@ const CallBubble = ({ app, micMuted, onClick, onEndCall }: { app: string; micMut
           >
             <button 
               onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'toggleMic'); }} 
-              className={btnClass}
+              className={clsx(btnClass, micActive ? "text-green-400" : "text-white opacity-40")}
             >
-              <Mic className="w-4 h-4 text-white" />
+              {micActive ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'toggleCam'); }} 
-              className={btnClass}
+              className={clsx(btnClass, camActive ? "text-green-400" : "text-white opacity-40")}
             >
-              <Video className="w-4 h-4 text-white" />
+              <Video className="w-4 h-4" />
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'endCall'); onEndCall(); }} 
@@ -295,7 +295,7 @@ export const DynamicIsland = () => {
   const [systemInfo, setSystemInfo]   = useState({ cpu: 12, ram: 45, net: 2.1 });
   const [weather, setWeather]         = useState({ temp: '22' });
   const [volume, setVolume] = useState(50);
-  const [meeting, setMeeting] = useState({ isActive: false, app: '', device: '', micMuted: false });
+  const [meeting, setMeeting] = useState({ isActive: false, app: '', device: '', micActive: false, camActive: false });
   // 0-100 system volume
 
   // Timer state
@@ -465,7 +465,8 @@ export const DynamicIsland = () => {
               <CallBubble 
                 key="call" 
                 app={meeting.app} 
-                micMuted={meeting.micMuted} 
+                micActive={meeting.micActive} 
+                camActive={meeting.camActive}
                 onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} 
                 onEndCall={() => setMeeting(m => ({ ...m, isActive: false }))}
               />
@@ -810,14 +811,17 @@ export const DynamicIsland = () => {
                     onClick={() => (window as any).ipcRenderer?.invoke('meeting-command', 'toggleMic')}
                     className={clsx(
                       "w-16 h-16 rounded-full flex items-center justify-center transition-all border shadow-xl",
-                      meeting.micMuted ? "bg-red-500 text-white border-red-600" : "bg-white/10 border-white/20 hover:bg-white/20"
+                      meeting.micActive ? "bg-green-500 text-white border-green-400" : "bg-white/10 border-white/20 hover:bg-white/20"
                     )}
                   >
-                    {meeting.micMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+                    {meeting.micActive ? <Mic className="w-7 h-7" /> : <MicOff className="w-7 h-7" />}
                   </button>
                   <button 
                     onClick={() => (window as any).ipcRenderer?.invoke('meeting-command', 'toggleCam')}
-                    className="w-16 h-16 rounded-full flex items-center justify-center transition-all border border-white/20 bg-white/10 hover:bg-white/20 shadow-xl"
+                    className={clsx(
+                      "w-16 h-16 rounded-full flex items-center justify-center transition-all border shadow-xl",
+                      meeting.camActive ? "bg-green-500 text-white border-green-400" : "bg-white/10 border-white/20 hover:bg-white/20"
+                    )}
                   >
                     <Video className="w-7 h-7" />
                   </button>
