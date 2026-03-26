@@ -74,6 +74,33 @@ const TimerBubble = ({ time, total, isActive }: { time: number; total: number; i
   );
 };
 
+// ── Notification count bubble (pill-mode) ─────────────────────────────────────
+const NotifBubble = ({ count, onClick }: { count: number; onClick: () => void }) => (
+  <motion.div
+    initial={{ scale: 0, opacity: 0, x: -6 }}
+    animate={{ scale: 1, opacity: 1, x: 0 }}
+    exit={{ scale: 0, opacity: 0, x: -6 }}
+    className="pointer-events-auto select-none cursor-pointer"
+    style={{ marginTop: 4, marginLeft: 6 }}
+    onClick={onClick}
+  >
+    <div className="relative w-14 h-14 flex items-center justify-center">
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 56 56">
+        <circle cx="28" cy="28" r="22" strokeWidth="2" fill="rgba(0,0,0,0.88)" stroke="rgba(255,255,255,0.08)" />
+        <motion.circle cx="28" cy="28" r="22" strokeWidth="2" fill="transparent" stroke="#3b82f6"
+          animate={{ opacity: [0.5, 0] }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: 'easeOut' }}
+          style={{ filter: 'drop-shadow(0 0 4px #3b82f6)' }}
+        />
+      </svg>
+      <div className="relative z-10 flex flex-col items-center leading-none">
+        <Bell className="w-4 h-4 text-blue-400" />
+        <span className="text-[11px] font-black text-white tabular-nums mt-0.5">{count > 9 ? '9+' : count}</span>
+      </div>
+    </div>
+  </motion.div>
+);
+
 // ── Main component ────────────────────────────────────────────────────────────
 export const DynamicIsland = () => {
   const [isHovered, setIsHovered]     = useState(false);
@@ -89,6 +116,7 @@ export const DynamicIsland = () => {
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
   const [systemInfo, setSystemInfo]   = useState({ cpu: 12, ram: 45, net: 2.1 });
   const [weather, setWeather]         = useState({ temp: '22' });
+  const [volume, setVolume]           = useState(70); // 0-100 system volume
 
   // Timer state
   const [timerTime, setTimerTime]     = useState(0);
@@ -97,6 +125,7 @@ export const DynamicIsland = () => {
   const [timerMins, setTimerMins]     = useState(25);
   const [timerSecs, setTimerSecs]     = useState(0);
   const timerRef = useRef<any>(null);
+  const volDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Selected calendar day
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
@@ -120,10 +149,12 @@ export const DynamicIsland = () => {
     const ipc = (window as any).ipcRenderer;
     if (ipc) {
       ipc.invoke('get-current-media').then((d: any) => { if (d) setMedia(d); }).catch(() => {});
+      ipc.invoke('get-volume').then((v: any) => { if (typeof v === 'number') setVolume(v); }).catch(() => {});
       ipc.on('media-update',   (_: any, d: any) => setMedia(d));
       ipc.on('system-update',  (_: any, d: any) => setSystemInfo(d));
       ipc.on('weather-update', (_: any, d: any) => setWeather(d));
       ipc.on('notification',   (_: any, d: any) => setNotifications(p => [{ id: Date.now(), ...d }, ...p.slice(0, 9)]));
+      ipc.on('volume-update',  (_: any, v: number) => setVolume(v));
       // FIX: use refs so handler always reads current isPinned/showSettings (no stale closure)
       ipc.on('mouse-proximity', (_: any, d: any) => {
         const near = typeof d === 'object' ? d.isNear : d;
@@ -165,7 +196,7 @@ export const DynamicIsland = () => {
   const resetTimer = () => { setTimerActive(false); setTimerTime(0); setTimerTotal(0); };
 
   // ── Window geometry ──────────────────────────────────────────────────────
-  const isExpanded = isHovered || isPinned || notifications.length > 0 || showSettings;
+  const isExpanded = isHovered || isPinned || showSettings;
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     if (!ipc) return;
@@ -178,12 +209,20 @@ export const DynamicIsland = () => {
   const openApp   = (app: string) => (window as any).ipcRenderer?.invoke('open-app', app);
   const toggleTab = (tab: string) => setVisibleTabs(p => p.includes(tab) ? p.filter(x => x !== tab) : [...p, tab]);
   const fmtTime   = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const setVol = (v: number) => {
+    setVolume(v); // instant visual
+    if (volDebounceRef.current) clearTimeout(volDebounceRef.current);
+    volDebounceRef.current = setTimeout(() => {
+      (window as any).ipcRenderer?.invoke('set-volume', v);
+    }, 80);
+  };
 
   // Wing/body colors must match exactly for seamless look
   const bg       = isLightMode ? 'rgba(248,248,248,0.94)' : 'rgba(10,10,10,0.92)';
   const WING_R   = 34;
   const monthName = currentTime.toLocaleString(lang === 'zh' ? 'zh-CN' : lang, { month: 'short' });
   const showTimerBubble = timerTime > 0 && !isExpanded;
+  const showNotifBubble = notifications.length > 0 && !isExpanded;
 
   return (
     <div className="fixed top-0 left-1/2 -translate-x-1/2 flex flex-row items-start pointer-events-none select-none z-[999]">
@@ -324,6 +363,16 @@ export const DynamicIsland = () => {
                       </button>
                       <SkipForward onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="w-4 h-4 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
                     </div>
+                    {/* Compact volume slider */}
+                    <div className="flex items-center gap-1.5 mt-2 w-full">
+                      <Volume2 className="w-3 h-3 shrink-0" style={{ opacity: 0.3 }} />
+                      <input type="range" min={0} max={100} value={volume}
+                        onChange={e => setVol(Number(e.target.value))}
+                        className="flex-1 h-1 rounded-full outline-none cursor-pointer"
+                        style={{ accentColor: '#3b82f6' }}
+                      />
+                      <span className="text-[8px] font-black tabular-nums w-5 text-right" style={{ opacity: 0.3 }}>{volume}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -443,14 +492,15 @@ export const DynamicIsland = () => {
                     <SkipForward onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="w-5 h-5 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
                   </div>
                 </div>
-                {/* Right: volume indicator */}
-                <div className="flex flex-col items-center justify-center px-5 gap-3" style={{ minWidth: 60 }}>
-                  <Volume2 className="w-4 h-4" style={{ opacity: 0.3 }} />
-                  <div className="flex flex-col gap-1 items-center">
-                    {[0.9,0.7,0.5,0.3,0.15].map((o, i) => (
-                      <div key={i} className="w-1.5 rounded-full bg-white" style={{ height: 4 + i * 4, opacity: media.isPlaying ? o : 0.08 }} />
-                    ))}
-                  </div>
+                {/* Right: volume slider column */}
+                <div className="flex flex-col items-center justify-center px-4 gap-2" style={{ minWidth: 70 }}>
+                  <Volume2 className="w-4 h-4" style={{ opacity: 0.35 }} />
+                  <input type="range" min={0} max={100} value={volume}
+                    onChange={e => setVol(Number(e.target.value))}
+                    className="h-1 rounded-full outline-none cursor-pointer"
+                    style={{ accentColor: '#3b82f6', writingMode: 'vertical-lr', direction: 'rtl', height: 80, width: 'auto' }}
+                  />
+                  <span className="text-[9px] font-black tabular-nums" style={{ opacity: 0.35 }}>{volume}%</span>
                 </div>
               </div>
             )}
@@ -673,6 +723,16 @@ export const DynamicIsland = () => {
           <div style={{ marginLeft: 6 }}>
             <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} />
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Notification bubble — appears when collapsed and there are unread notifications */}
+      <AnimatePresence>
+        {showNotifBubble && (
+          <NotifBubble
+            count={notifications.length}
+            onClick={() => { setIsHovered(true); setActiveView('Notificación'); (window as any).ipcRenderer?.send('set-ignore-mouse-events', false); }}
+          />
         )}
       </AnimatePresence>
     </div>

@@ -1,17 +1,29 @@
 {
-  "name": "dynamic-island-win",
+  "name": "notchly",
   "private": true,
   "version": "1.0.0",
   "author": "dev",
-  "description": "Dynamic Island Widget",
+  "description": "Notchly – Dynamic Island for Windows",
   "build": {
-    "appId": "com.dynamic.island",
+    "appId": "com.notchly.app",
+    "productName": "Notchly",
     "asar": true,
     "asarUnpack": [
       "**/*.node"
     ],
     "win": {
-      "target": "portable"
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false
     },
     "files": [
       "dist",

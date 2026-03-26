@@ -3,7 +3,7 @@ import { app, BrowserWindow, screen, ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
-import { fork, exec } from 'node:child_process'
+import { fork, exec, spawn } from 'node:child_process'
 import os from 'node:os'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -386,6 +386,103 @@ try {
   });
 
   ipcMain.handle('media-command', (event, action) => mediaProc.send(action));
+
+  // ── Volume control — persistent PowerShell session (C# compiled ONCE) ─────
+  // We spawn one PS process that stays alive. The C# type is compiled at startup,
+  // then each get/set is just a single stdin line — no recompile overhead.
+  let psVol: ReturnType<typeof spawn> | null = null;
+  let psVolReady = false;
+  let psVolBuf   = '';
+  let psVolQueue: Array<(v: number | null) => void> = [];
+
+  const volCS = [
+    'Add-Type -TypeDefinition @"',
+    'using System.Runtime.InteropServices;',
+    // IMMDeviceEnumerator: EnumAudioEndpoints(slot0), GetDefaultAudioEndpoint(slot1)
+    '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+    'interface IEnum {',
+    '  [return:MarshalAs(UnmanagedType.IUnknown)] object EnumEp(int f,int s);',
+    '  [return:MarshalAs(UnmanagedType.IUnknown)] object GetDef(int f,int r);',
+    '}',
+    // IMMDevice: Activate is slot 0
+    '[Guid("D666063F-1587-4E43-81F1-B948E807363F"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+    'interface IDev {',
+    '  [return:MarshalAs(UnmanagedType.IUnknown)] object Act([MarshalAs(UnmanagedType.LPStruct)] System.Guid id,int c,int p);',
+    '}',
+    // IAudioEndpointVolume correct vtable:
+    // 0:RegisterControlChangeNotify 1:UnregisterControlChangeNotify 2:GetChannelCount
+    // 3:SetMasterVolumeLevel(dB)  4:SetMasterVolumeLevelScalar  5:GetMasterVolumeLevel(dB)  6:GetMasterVolumeLevelScalar
+    '[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+    'interface IVol {',
+    '  void R1();void R2();void R3();',
+    '  void SetDb(float v,System.Guid ctx);',
+    '  void SetScalar(float v,System.Guid ctx);',
+    '  void GetDb(out float v);',
+    '  void GetScalar(out float v);',
+    '}',
+    '[ComImport,Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDev {}',
+    'public class WinVol {',
+    '  static IVol Ep() {',
+    '    var e=(IEnum)(new MMDev());',
+    '    var d=(IDev)e.GetDef(0,1);',
+    '    return (IVol)d.Act(typeof(IVol).GUID,23,0);',
+    '  }',
+    '  public static int Get() { float f=0f; Ep().GetScalar(out f); return (int)(f*100+0.5); }',
+    '  public static void Set(int n) { Ep().SetScalar((float)n/100,System.Guid.Empty); }',
+    '}',
+    '"@ -Language CSharp 2>$null',
+    'Write-Output __VOL_READY__',
+  ].join('\n');
+
+  const startVolPS = () => {
+    psVol = spawn('powershell', ['-NoExit', '-NonInteractive', '-Command', '-'], {
+      stdio: ['pipe', 'pipe', 'ignore']
+    });
+    psVol.stdout!.on('data', (d: Buffer) => {
+      psVolBuf += d.toString();
+      let nl: number;
+      while ((nl = psVolBuf.indexOf('\n')) !== -1) {
+        const line = psVolBuf.slice(0, nl).replace(/\r/g, '').trim();
+        psVolBuf = psVolBuf.slice(nl + 1);
+        if (line === '__VOL_READY__') {
+          psVolReady = true;
+          // Push initial volume to renderer
+          psVol!.stdin!.write('[WinVol]::Get()\n');
+        } else if (/^\d+$/.test(line)) {
+          const v = parseInt(line, 10);
+          const cb = psVolQueue.shift();
+          if (cb) cb(v);
+          win?.webContents.send('volume-update', v);
+        }
+      }
+    });
+    psVol.on('exit', () => { psVolReady = false; psVol = null; });
+    psVol.stdin!.write(volCS + '\n');
+  };
+
+  startVolPS(); // initialise immediately on app start
+
+  const getVol = (): Promise<number | null> => new Promise(res => {
+    if (!psVolReady || !psVol) { res(null); return; }
+    psVolQueue.push(res);
+    psVol.stdin!.write('[WinVol]::Get()\n');
+  });
+
+  const setVol = (v: number): void => {
+    if (!psVolReady || !psVol) return;
+    const clamped = Math.max(0, Math.min(100, Math.round(v)));
+    psVol.stdin!.write(`[WinVol]::Set(${clamped})\n`);
+  };
+
+  ipcMain.handle('get-volume', async () => await getVol());
+  ipcMain.handle('set-volume', (_e, v: number) => { setVol(v); return true; });
+
+  // Poll volume every 3s to detect external changes
+  setInterval(async () => {
+    const v = await getVol();
+    if (v !== null) win?.webContents.send('volume-update', v);
+  }, 3000);
+
   ipcMain.handle('open-app', async (event, appName: string) => {
     const lower = appName.toLowerCase();
     if (lower.includes('chrome')) exec('start chrome');
