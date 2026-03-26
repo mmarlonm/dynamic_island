@@ -74,3 +74,11 @@ body {
   50% { opacity: 0.5; }
   100% { transform: translateX(300%) skewX(-20deg); opacity: 0; }
 }
+ 
+ .no-scrollbar::-webkit-scrollbar {
+   display: none;
+ }
+ .no-scrollbar {
+   -ms-overflow-style: none;
+   scrollbar-width: none;
+ }

@@ -292,11 +292,14 @@ try {
   setInterval(() => {
     const psNotif = `
       try {
-        $e = Get-WinEvent -LogName Application -MaxEvents 1 -ErrorAction SilentlyContinue |
-             Select-Object -Property TimeCreated, ProviderName, Message;
+        $noise = 'SideBySide','VSS','ESENT','MSExchange','Security-SPP','Desktop Window Manager','.NET Runtime','Windows Error Reporting','DistributedCOM','Service Control Manager';
+        $e = Get-WinEvent -LogName Application -MaxEvents 5 -ErrorAction SilentlyContinue | 
+             Where-Object { $_.LevelDisplayName -eq 'Information' -and $noise -notcontains $_.ProviderName } |
+             Select-Object -First 1 -Property TimeCreated, ProviderName, Message;
         if ($e) {
-          $out = $e.TimeCreated.ToString('o') + '|||' + $e.ProviderName + '|||' + ($e.Message -split '
-')[0];
+          $msg = ($e.Message -split '
+')[0] -replace '[^ -~áéíóúÁÉÍÓÚñÑ]', '';
+          $out = $e.TimeCreated.ToString('o') + '|||' + $e.ProviderName + '|||' + $msg;
           Write-Output $out
         }
       } catch {}

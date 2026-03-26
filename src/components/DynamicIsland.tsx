@@ -679,7 +679,7 @@ export const DynamicIsland = () => {
                     <Trash2 className="w-3 h-3" /> {t.clear}
                   </button>
                 </div>
-                <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 px-1 pb-1">
+                <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-1.5 px-1 pb-1">
                   {notifications.length > 0 ? notifications.map(n => (
                     <div key={n.id} onClick={() => setNotifications(p => p.filter(x => x.id !== n.id))} className="rounded-[16px] border p-3 flex items-center gap-3 cursor-pointer transition-all hover:!bg-white/10" style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.06)' }}>
                       <div className="w-8 h-8 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500 shrink-0"><Bell className="w-4 h-4" /></div>
