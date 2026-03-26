@@ -268,13 +268,16 @@ try {
       [Guid("D6660639-8874-4034-AD23-37284F510F4F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
       interface IMMDevice { int Activate(ref Guid id, int cls, IntPtr p, out IAudioSessionManager2 m); }
       [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-      interface IMMDeviceEnumerator { int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); }
+      interface IMMDeviceEnumerator { int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices); }
+      [Guid("0BD7A1AD-7E6D-4359-8CA7-3C5644E2096F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface IMMDeviceCollection { int GetCount(out int count); int Item(int index, out IMMDevice device); }
       [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDevEnum { }
       public class MicCheck {
           public static bool IsInUse() {
               try {
                   var enumerator = (IMMDeviceEnumerator)new MMDevEnum();
                   IMMDevice device;
+                  // 1 = Capture, 0 = Console role
                   if (enumerator.GetDefaultAudioEndpoint(1, 0, out device) != 0) return false;
                   IAudioSessionManager2 manager;
                   var iid = new Guid("77AA9910-1EE6-440D-B95F-456477E6E273");
@@ -294,39 +297,80 @@ try {
           }
       }
 '@
-      Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+      Add-Type -TypeDefinition $code
+      Write-Output "__DEBUG__PS_Script_Started"
       while($true) {
         try {
+          # 1. C# Basic Check
           $micInUse = [MicCheck]::IsInUse()
+          
+          # 2. Optimized Registry Scan
           if (-not $micInUse) {
-            $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
-            foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
+            $parents = "HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone", 
+                       "HKLM:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone"
+            foreach ($p in $parents) {
+              if (Test-Path $p) {
+                # Look for entries where LastUsedTimeStop is 0
+                $entries = Get-ChildItem -Path $p -ErrorAction SilentlyContinue
+                foreach ($e in $entries) {
+                  $val = Get-ItemProperty -Path $e.PsPath -ErrorAction SilentlyContinue
+                  if ($val.LastUsedTimeStop -eq 0 -and $val.LastUsedTimeStart -gt 0) { $micInUse = $true; break }
+                  # Check one level deeper for Bluetooth/Specific devices
+                  $subs = Get-ChildItem -Path $e.PsPath -ErrorAction SilentlyContinue
+                  foreach($s in $subs) {
+                     $v2 = Get-ItemProperty -Path $s.PsPath -ErrorAction SilentlyContinue
+                     if ($v2.LastUsedTimeStop -eq 0 -and $v2.LastUsedTimeStart -gt 0) { $micInUse = $true; break }
+                  }
+                  if ($micInUse) { break }
+                }
+              }
+              if ($micInUse) { break }
+            }
           }
-          # Deep search for meeting windows - optimized
+          
+          # 3. Camera Scan (Registry primary)
+          $camInUse = $false
+          $camParents = "HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam", 
+                        "HKLM:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam"
+          foreach ($p in $camParents) {
+            if (Test-Path $p) {
+              $entries = Get-ChildItem -Path $p -ErrorAction SilentlyContinue
+              foreach ($e in $entries) {
+                $val = Get-ItemProperty -Path $e.PsPath -ErrorAction SilentlyContinue
+                if ($val.LastUsedTimeStop -eq 0 -and $val.LastUsedTimeStart -gt 0) { $camInUse = $true; break }
+                $subs = Get-ChildItem -Path $e.PsPath -ErrorAction SilentlyContinue
+                foreach($s in $subs) {
+                   $v2 = Get-ItemProperty -Path $s.PsPath -ErrorAction SilentlyContinue
+                   if ($v2.LastUsedTimeStop -eq 0 -and $v2.LastUsedTimeStart -gt 0) { $camInUse = $true; break }
+                }
+                if ($camInUse) { break }
+              }
+            }
+            if ($camInUse) { break }
+          }
+          
+          # 4. Window Detection
           $keywords = 'Llamada|Call|Meeting|Reun|Activo|curso|Talk|Join|Unirse|Meet|Vid|Video|Screen|Sharing'
           $allP = Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.MainWindowTitle -match $keywords) }
-          $found = $allP | Select-Object -First 1
-          $isMeeting = if ($found) { $true } else { $false }
-          
-          # Definitive Mic check
-          $micInUse = [MicCheck]::IsInUse()
-          if (-not $micInUse) {
-             $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
-             foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
+          $found = $null
+          $isMeeting = $false
+          if ($allP) {
+            foreach($p in $allP) {
+              $t = $p.MainWindowTitle
+              if ($t -match $keywords -and $t -notmatch '^Teams$|^Microsoft Teams$|^Zoom$|^Zoom Cloud Meetings$') {
+                $found = $p; $isMeeting = $true; break
+              }
+            }
+            if (-not $found) { $found = $allP | Select-Object -First 1 }
           }
-          
-          # Camera check
-          $camInUse = $false
-          $camRegs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam")
-          foreach ($r in $camRegs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $camInUse = $true; break } } }
-          
           if ($micInUse -and $found -and ($found.ProcessName -match 'Teams|Zoom|ms-teams|Meet')) {
             $isMeeting = $true
           }
           
-          if ($isMeeting) { Write-Output "__DEBUG__ACTIVE: $($found.MainWindowTitle) [Mic:$micInUse|Cam:$camInUse]" }
+          $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | 
+                Where-Object { $_.FriendlyName -match 'Bluetooth|Headset|Auricular|Hand-free|Llamada' } | 
+                Select-Object -First 1
           
-          $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
           $appName = if($found){ 
             if($found.MainWindowTitle -match 'Teams' -or $found.ProcessName -match 'Teams'){ 'Teams' } 
             elseif($found.MainWindowTitle -match 'Zoom' -or $found.ProcessName -match 'Zoom'){ 'Zoom' } 
