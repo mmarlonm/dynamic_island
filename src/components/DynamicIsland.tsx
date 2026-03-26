@@ -253,8 +253,10 @@ export const DynamicIsland = () => {
   const isPinnedRef    = useRef(false);
   const showSettingsRef = useRef(false);
   const setIsHoveredRef = useRef(setIsHovered);
+  const isHoveredRef    = useRef(false);
   useEffect(() => { isPinnedRef.current = isPinned; }, [isPinned]);
   useEffect(() => { showSettingsRef.current = showSettings; }, [showSettings]);
+  useEffect(() => { isHoveredRef.current = isHovered; }, [isHovered]);
 
   const T: Record<string, any> = {
     es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar' },
@@ -267,6 +269,8 @@ export const DynamicIsland = () => {
   useEffect(() => {
     const clock = setInterval(() => setCurrentTime(new Date()), 1000);
     const ipc = (window as any).ipcRenderer;
+    const hoverTimeoutRef = { current: null as any };
+
     if (ipc) {
       ipc.invoke('get-current-media').then((d: any) => { if (d) setMedia(d); }).catch(() => {});
       ipc.invoke('get-volume').then((v: any) => { if (typeof v === 'number') setVolume(v); }).catch(() => {});
@@ -279,11 +283,21 @@ export const DynamicIsland = () => {
       ipc.on('mouse-proximity', (_: any, d: any) => {
         const near = typeof d === 'object' ? d.isNear : d;
         if (near) {
-          setIsHoveredRef.current(true);
-          ipc.send('set-ignore-mouse-events', false);
-        } else if (!isPinnedRef.current && !showSettingsRef.current) {
-          setIsHoveredRef.current(false);
-          ipc.send('set-ignore-mouse-events', true);
+          if (hoverTimeoutRef.current || isHoveredRef.current) return;
+          hoverTimeoutRef.current = setTimeout(() => {
+            setIsHoveredRef.current(true);
+            ipc.send('set-ignore-mouse-events', false);
+            hoverTimeoutRef.current = null;
+          }, 100);
+        } else {
+          if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current);
+            hoverTimeoutRef.current = null;
+          }
+          if (!isPinnedRef.current && !showSettingsRef.current) {
+            setIsHoveredRef.current(false);
+            ipc.send('set-ignore-mouse-events', true);
+          }
         }
       });
     }
@@ -295,16 +309,24 @@ export const DynamicIsland = () => {
     if (!isHovered && !isPinned && showSettings) setShowSettings(false);
   }, [isHovered, isPinned, showSettings]);
 
-  // Timer tick
-  useEffect(() => {
-    if (timerActive && timerTime > 0) {
-      timerRef.current = setInterval(() => setTimerTime(p => p - 1), 1000);
-    } else {
-      clearInterval(timerRef.current);
-      if (timerTime === 0 && timerActive) setTimerActive(false);
-    }
-    return () => clearInterval(timerRef.current);
-  }, [timerActive, timerTime]);
+  const playAlarm = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const playTone = (f: number, s: number) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.setValueAtTime(f, ctx.currentTime + s);
+        g.gain.setValueAtTime(0, ctx.currentTime + s);
+        g.gain.linearRampToValueAtTime(0.2, ctx.currentTime + s + 0.05);
+        g.gain.linearRampToValueAtTime(0, ctx.currentTime + s + 0.25);
+        o.start(ctx.currentTime + s); o.stop(ctx.currentTime + s + 0.3);
+      };
+      playTone(880, 0); playTone(880, 0.3); playTone(1100, 0.6);
+    } catch (e) { console.error('Alarm failed', e); }
+  };
 
   const startTimer = () => {
     const total = timerHours * 3600 + timerMins * 60 + timerSecs;
@@ -314,6 +336,20 @@ export const DynamicIsland = () => {
     setTimerActive(true);
   };
   const resetTimer = () => { setTimerActive(false); setTimerTime(0); setTimerTotal(0); };
+
+  // Timer tick
+  useEffect(() => {
+    if (timerActive && timerTime > 0) {
+      timerRef.current = setInterval(() => setTimerTime(p => p - 1), 1000);
+    } else {
+      clearInterval(timerRef.current);
+      if (timerTime === 0 && timerActive) {
+        setTimerActive(false);
+        playAlarm();
+      }
+    }
+    return () => clearInterval(timerRef.current);
+  }, [timerActive, timerTime]);
 
   // ── Window geometry ──────────────────────────────────────────────────────
   const isExpanded = isHovered || isPinned || showSettings;

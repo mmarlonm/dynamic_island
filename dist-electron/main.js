@@ -76,12 +76,9 @@ function createWindow() {
     const relX = x - (b.x + b.width / 2);
     const relY = y - b.y;
     const [winW, winH] = win.getSize();
-    const currentWidthLimit = isExpandedMode ? 450 : 200;
-    const currentHeightLimit = winH + 40;
-    const isInside = Math.abs(relX) <= currentWidthLimit && relY >= -20 && relY <= currentHeightLimit;
-    if (Math.abs(relX) < 600 && relY > -100 && relY < 900) {
-      console.log(`[HITBOX] x:${Math.round(relX)} y:${Math.round(relY)} IN:${isInside} EXP:${isExpandedMode} winH:${winH}`);
-    }
+    const widthLimit = isExpandedMode ? 400 : 120;
+    const heightLimit = isExpandedMode ? winH + 40 : 35;
+    const isInside = Math.abs(relX) <= widthLimit && relY >= 0 && relY <= heightLimit;
     win.setIgnoreMouseEvents(!isInside, { forward: true });
     win.webContents.send("mouse-proximity", { isNear: isInside, relX, relY });
   }, 35);

@@ -101,22 +101,12 @@ function createWindow() {
     const relY = y - b.y;
     const [winW, winH] = win.getSize();
     
-    // Nuclear Robustness: Use the actual window size plus a small buffer
-    // The window is always centered horizontally on the screen
-    const widthLimit = Math.max(400, winW / 2); // In expanded mode, winW is full screen, so we cap it or use a large value
-    // If winW is full screen (e.g. 1920), winW/2 is 960. Correct.
-    // If winW is small (e.g. 360), use 400 for a bit of margin.
-    
-    // IMPORTANT: If not in expanded mode, we want a tighter hitbox to allow clicking around the pill
-    const currentWidthLimit = isExpandedMode ? 450 : 200;
-    const currentHeightLimit = winH + 40;
+    // Final Anti-Toques: 120px width limit (240 total), 35px height limit (top half only)
+    const widthLimit = isExpandedMode ? 400 : 120; 
+    const heightLimit = isExpandedMode ? winH + 40 : 35; 
 
-    const isInside = (Math.abs(relX) <= currentWidthLimit && relY >= -20 && relY <= currentHeightLimit);
-
-    // DEBUG LOGS (unconditional if near center)
-    if (Math.abs(relX) < 600 && relY > -100 && relY < 900) {
-      console.log(`[HITBOX] x:${Math.round(relX)} y:${Math.round(relY)} IN:${isInside} EXP:${isExpandedMode} winH:${winH}`);
-    }
+    // relY >= 0 ensures we don't trigger if the mouse is "above" the screen
+    const isInside = (Math.abs(relX) <= widthLimit && relY >= 0 && relY <= heightLimit);
 
     win.setIgnoreMouseEvents(!isInside, { forward: true });
     win.webContents.send('mouse-proximity', { isNear: isInside, relX, relY });
