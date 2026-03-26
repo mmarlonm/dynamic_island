@@ -302,35 +302,30 @@ try {
             $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
             foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
           }
-          # Deep search for meeting windows
-          $allP = Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.MainWindowTitle -match 'Teams|Zoom|Meet|Llamada|Call|Reun|Activo|curso|Talk|Join|Unirse|Vid') }
+          # Deep search for meeting windows - optimized
+          $keywords = 'Llamada|Call|Meeting|Reun|Activo|curso|Talk|Join|Unirse|Meet|Vid|Video|Screen|Sharing'
+          $allP = Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.MainWindowTitle -match $keywords) }
           $found = $null
           $isMeeting = $false
           foreach($p in $allP) {
             $t = $p.MainWindowTitle
-            # Broad keywords for active meeting windows
-            if ($t -match 'Llamada|Call|Meeting|Reun|Activo|curso|Talk|Join|Unirse|Meet|Vid|Video|Screen|Sharing') {
-              if ($t -notmatch '^Teams$|^Microsoft Teams$|^Zoom$|^Zoom Cloud Meetings$') {
-                $found = $p
-                $isMeeting = $true
-                break
-              }
+            if ($t -match $keywords -and $t -notmatch '^Teams$|^Microsoft Teams$|^Zoom$|^Zoom Cloud Meetings$') {
+              $found = $p
+              $isMeeting = $true
+              break
             }
           }
           if (-not $found) { $found = $allP | Select-Object -First 1 }
           
-          # Definitive Mic check fallback: If mic is in use and a meeting app is found, it's a meeting
+          # Definitive Mic check fallback
           $micInUse = [MicCheck]::IsInUse()
-          if (-not $micInUse) {
-            $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
-            foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
-          }
-          
           if ($micInUse -and $found -and ($found.ProcessName -match 'Teams|Zoom|ms-teams|Meet')) {
             $isMeeting = $true
           }
           
-          if ($found) { Write-Output "__DEBUG__Found:$($found.MainWindowTitle) [Proc:$($found.ProcessName)] Mic:$micInUse Meet:$isMeeting" }
+          if ($isMeeting) { 
+             Write-Output "__DEBUG__ACTIVE: $($found.MainWindowTitle) [Mic:$micInUse]" 
+          }
           
           $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
           $appName = if($found){ 
@@ -344,7 +339,7 @@ try {
         } catch {
           Write-Output "__DEBUG__Error:$($_.Exception.Message)"
         }
-        Start-Sleep -Seconds 1
+        Start-Sleep -m 500
       }
     `;
     fs.writeFileSync(psPath, psCode);
