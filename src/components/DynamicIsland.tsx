@@ -97,6 +97,15 @@ export const DynamicIsland = () => {
   const [timerMins, setTimerMins]     = useState(25);
   const [timerSecs, setTimerSecs]     = useState(0);
   const timerRef = useRef<any>(null);
+  // Selected calendar day
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+
+  // Refs to avoid stale closure in IPC listener
+  const isPinnedRef    = useRef(false);
+  const showSettingsRef = useRef(false);
+  const setIsHoveredRef = useRef(setIsHovered);
+  useEffect(() => { isPinnedRef.current = isPinned; }, [isPinned]);
+  useEffect(() => { showSettingsRef.current = showSettings; }, [showSettings]);
 
   const T: Record<string, any> = {
     es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar' },
@@ -110,18 +119,24 @@ export const DynamicIsland = () => {
     const clock = setInterval(() => setCurrentTime(new Date()), 1000);
     const ipc = (window as any).ipcRenderer;
     if (ipc) {
+      ipc.invoke('get-current-media').then((d: any) => { if (d) setMedia(d); }).catch(() => {});
       ipc.on('media-update',   (_: any, d: any) => setMedia(d));
       ipc.on('system-update',  (_: any, d: any) => setSystemInfo(d));
       ipc.on('weather-update', (_: any, d: any) => setWeather(d));
       ipc.on('notification',   (_: any, d: any) => setNotifications(p => [{ id: Date.now(), ...d }, ...p.slice(0, 9)]));
+      // FIX: use refs so handler always reads current isPinned/showSettings (no stale closure)
       ipc.on('mouse-proximity', (_: any, d: any) => {
         const near = typeof d === 'object' ? d.isNear : d;
-        if (near)  { setIsHovered(true);  ipc.send('set-ignore-mouse-events', false); }
-        else if (!isPinned && !showSettings) { setIsHovered(false); ipc.send('set-ignore-mouse-events', true); }
+        if (near) {
+          setIsHoveredRef.current(true);
+          ipc.send('set-ignore-mouse-events', false);
+        } else if (!isPinnedRef.current && !showSettingsRef.current) {
+          setIsHoveredRef.current(false);
+          ipc.send('set-ignore-mouse-events', true);
+        }
       });
     }
     return () => clearInterval(clock);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-close settings on mouse leave
@@ -168,7 +183,6 @@ export const DynamicIsland = () => {
   const bg       = isLightMode ? 'rgba(248,248,248,0.94)' : 'rgba(10,10,10,0.92)';
   const WING_R   = 34;
   const monthName = currentTime.toLocaleString(lang === 'zh' ? 'zh-CN' : lang, { month: 'short' });
-  const dayNum    = currentTime.getDate();
   const showTimerBubble = timerTime > 0 && !isExpanded;
 
   return (
@@ -204,13 +218,13 @@ export const DynamicIsland = () => {
           <path d={`M ${WING_R} 0 H 0 V ${WING_R} A ${WING_R} ${WING_R} 0 0 1 ${WING_R} 0 Z`} fill={bg} />
         </svg>
 
-        {/* Inner content wrapper — clips content but not the wings */}
+        {/* Inner content wrapper — clips content, NO side borders so wings are seamless */}
         <div className="absolute inset-0 overflow-hidden" style={{
           background: bg,
-          borderLeft: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}`,
-          borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}`,
           borderBottom: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}`,
           borderTop: 'none',
+          borderLeft: 'none',
+          borderRight: 'none',
           borderRadius: `0 0 ${WING_R}px ${WING_R}px`,
           backdropFilter: 'blur(80px)',
           boxShadow: isLightMode
@@ -295,34 +309,100 @@ export const DynamicIsland = () => {
           </div>
 
           <div className="flex-1 overflow-hidden relative">
-            {/* RESUMEN */}
+            {/* RESUMEN — matches reference: large music left | week calendar center | notif count right */}
             {activeView === 'Resumen' && (
-              <div className="absolute inset-0 flex items-center justify-between px-2 gap-4">
-                <div className="flex items-center gap-4 flex-1 min-w-0 pr-5 border-r border-white/5">
-                  <div onDoubleClick={() => openApp('Spotify')} className="w-[68px] h-[68px] rounded-[22px] overflow-hidden shrink-0 border border-white/10 bg-zinc-900 relative shadow-2xl cursor-pointer hover:scale-105 transition-transform">
-                    {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-7 h-7 m-auto opacity-10" />}
-                    <div className="absolute -bottom-1 -right-1 bg-[#fc3c44] w-6 h-6 rounded-full flex items-center justify-center border-2 border-black shadow-lg"><Music className="w-2.5 h-2.5 text-white" /></div>
+              <div className="absolute inset-0 flex items-stretch">
+
+                {/* Col 1: Music — large album art + info + controls */}
+                <div className="flex items-center gap-3 px-4 border-r shrink-0" style={{ borderColor: 'rgba(255,255,255,0.06)', width: 260 }}>
+                  {/* Big album art */}
+                  <div onDoubleClick={() => openApp('Spotify')} className="w-[90px] h-[90px] rounded-[22px] overflow-hidden shrink-0 border border-white/10 bg-zinc-900 relative shadow-2xl cursor-pointer hover:scale-105 transition-transform">
+                    {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-9 h-9 m-auto opacity-10" />}
+                    <div className="absolute -bottom-1 -right-1 bg-[#fc3c44] w-7 h-7 rounded-full flex items-center justify-center border-2 border-black shadow-lg"><Music className="w-3 h-3 text-white" /></div>
                   </div>
-                  <div className="flex flex-col min-w-0 text-left">
-                    <h4 className="text-[17px] font-black truncate tracking-tighter leading-tight">{media.title}</h4>
-                    <p  className="text-[11px] font-bold truncate mt-0.5" style={{ opacity: 0.4 }}>{media.artist}</p>
-                    <div className="flex items-center gap-5 mt-2.5">
-                      <SkipBack    onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="w-4.5 h-4.5 cursor-pointer transition-all hover:scale-110" style={{ opacity: 0.45 }} />
+                  {/* Track info + controls vertical */}
+                  <div className="flex flex-col min-w-0 flex-1 text-left gap-0.5">
+                    <span className="text-[14px] font-black truncate tracking-tight leading-tight">{media.title}</span>
+                    <span className="text-[10px] font-bold truncate" style={{ opacity: 0.45 }}>{media.artist}</span>
+                    <div className="flex items-center gap-3 mt-2">
+                      <SkipBack    onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="w-4 h-4 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
                       <button      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-7 h-7 hover:scale-110 transition-all outline-none">
                         {media.isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
                       </button>
-                      <SkipForward onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="w-4.5 h-4.5 cursor-pointer transition-all hover:scale-110" style={{ opacity: 0.45 }} />
+                      <SkipForward onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="w-4 h-4 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-col justify-center px-4 text-left shrink-0">
-                  <div onClick={() => openApp('outlook')} className="flex items-end gap-2 mb-2 cursor-pointer font-black hover:opacity-70 transition-all">
-                    <span className="text-[32px] tracking-tighter leading-none">{monthName}</span>
-                    <span className="text-[11px] uppercase tracking-wider pb-1" style={{ opacity: 0.3 }}>{dayNum}</span>
+
+                {/* Col 2: Week calendar — selectable days */}
+                {(() => {
+                  const today = currentTime;
+                  const todayNum = today.getDate();
+                  const todayMonth = today.getMonth();
+                  const dayOfWeek = today.getDay();
+                  const days = Array.from({ length: 7 }, (_, i) => {
+                    const d = new Date(today);
+                    d.setDate(todayNum - dayOfWeek + i);
+                    return d;
+                  });
+                  const dayAbbr = ['S','M','T','W','T','F','S'];
+                  const sel = selectedDay;
+                  return (
+                    <div className="flex-1 flex flex-col justify-center px-5 border-r" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                      <div className="flex items-baseline gap-2 font-black mb-2">
+                        <span className="text-[24px] tracking-tighter leading-none" style={{ opacity: 0.9 }}>{monthName}</span>
+                        <span className="text-[12px] text-blue-400 font-mono font-black">{todayNum}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        {days.map((d, i) => {
+                          const isToday   = d.getDate() === todayNum && d.getMonth() === todayMonth;
+                          const isSel     = sel && d.getDate() === sel.getDate() && d.getMonth() === sel.getMonth();
+                          const isWeekend = i === 0 || i === 6;
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => setSelectedDay(isSel ? null : new Date(d))}
+                              className="flex flex-col items-center gap-0.5 outline-none"
+                            >
+                              <span className="text-[7.5px] font-black uppercase" style={{ opacity: isToday ? 1 : 0.3, color: isWeekend && !isToday ? 'rgba(255,100,100,0.7)' : 'inherit' }}>{dayAbbr[i]}</span>
+                              <div
+                                className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black transition-all"
+                                style={{
+                                  background: isToday ? '#3b82f6' : isSel ? 'rgba(255,255,255,0.15)' : 'transparent',
+                                  color: isToday ? '#fff' : 'inherit',
+                                  opacity: isToday || isSel ? 1 : 0.4,
+                                  boxShadow: isToday ? '0 0 10px rgba(59,130,246,0.5)' : 'none',
+                                }}
+                              >
+                                {d.getDate()}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center gap-1 mt-2 text-[8px] font-black uppercase tracking-wider" style={{ opacity: 0.18 }}>
+                        <CheckSquare className="w-2.5 h-2.5 text-emerald-400" />
+                        {sel ? sel.toLocaleDateString(lang, { weekday: 'short', day: 'numeric' }) : t.empty}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Col 3: Notification count badge */}
+                <div className="flex flex-col items-center justify-center px-5 gap-1.5 shrink-0" style={{ width: 90 }}>
+                  <div
+                    className="w-14 h-14 rounded-full flex items-center justify-center relative cursor-pointer hover:scale-105 transition-transform"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    onClick={() => setActiveView('Notificación')}
+                  >
+                    <Bell className="w-6 h-6" style={{ opacity: 0.5 }} />
+                    {notifications.length > 0 && (
+                      <div className="absolute -top-1 -right-1 bg-blue-500 text-white text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-lg" style={{ boxShadow: '0 0 10px rgba(59,130,246,0.6)' }}>
+                        {notifications.length > 9 ? '9+' : notifications.length}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] uppercase font-black tracking-widest" style={{ opacity: 0.2 }}>
-                    <CheckSquare className="w-3.5 h-3.5 text-emerald-400" /> {t.empty}
-                  </div>
+                  <span className="text-[7.5px] font-black uppercase tracking-widest" style={{ opacity: 0.25 }}>Alertas</span>
                 </div>
               </div>
             )}
@@ -348,17 +428,37 @@ export const DynamicIsland = () => {
               </div>
             )}
 
-            {/* MULTIMEDIA */}
+            {/* MULTIMEDIA — album art left + controls right */}
             {activeView === 'Multimedia' && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                <div className="flex items-center gap-12">
-                  <SkipBack    onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="w-8 h-8 cursor-pointer transition-all hover:scale-110" style={{ opacity: 0.3 }} />
-                  <button      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-20 h-20 rounded-full flex items-center justify-center border outline-none hover:scale-105 transition-all shadow-2xl" style={{ background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}>
-                    {media.isPlaying ? <Pause className="w-10 h-10 fill-current" /> : <Play className="w-10 h-10 fill-current ml-1" />}
-                  </button>
-                  <SkipForward onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="w-8 h-8 cursor-pointer transition-all hover:scale-110" style={{ opacity: 0.3 }} />
+              <div className="absolute inset-0 flex items-stretch">
+                {/* Left: album art + wave */}
+                <div className="flex flex-col items-center justify-center px-6 border-r gap-2" style={{ borderColor: 'rgba(255,255,255,0.06)', minWidth: 120 }}>
+                  <div onDoubleClick={() => openApp('Spotify')} className="w-16 h-16 rounded-[20px] overflow-hidden border border-white/10 bg-zinc-900 relative shadow-2xl cursor-pointer hover:scale-105 transition-transform">
+                    {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-7 h-7 m-auto opacity-10" />}
+                  </div>
+                  <SoundVisualizer isPlaying={media.isPlaying} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-[0.5em] truncate max-w-[400px]" style={{ opacity: 0.25 }}>{media.title}</span>
+                {/* Center: track info + big controls */}
+                <div className="flex-1 flex flex-col items-start justify-center px-6 gap-2">
+                  <span className="text-[15px] font-black truncate w-full tracking-tight leading-tight">{media.title}</span>
+                  <span className="text-[11px] font-bold truncate w-full" style={{ opacity: 0.4 }}>{media.artist}</span>
+                  <div className="flex items-center gap-5 mt-1">
+                    <SkipBack    onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="w-5 h-5 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
+                    <button      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-11 h-11 rounded-full flex items-center justify-center border outline-none hover:scale-105 transition-all shadow-xl" style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.12)' }}>
+                      {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+                    </button>
+                    <SkipForward onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="w-5 h-5 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
+                  </div>
+                </div>
+                {/* Right: volume indicator */}
+                <div className="flex flex-col items-center justify-center px-5 gap-3" style={{ minWidth: 60 }}>
+                  <Volume2 className="w-4 h-4" style={{ opacity: 0.3 }} />
+                  <div className="flex flex-col gap-1 items-center">
+                    {[0.9,0.7,0.5,0.3,0.15].map((o, i) => (
+                      <div key={i} className="w-1.5 rounded-full bg-white" style={{ height: 4 + i * 4, opacity: media.isPlaying ? o : 0.08 }} />
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 

@@ -347,25 +347,30 @@ try {
   });
 
   // System Notification Polling (Windows Event Logs)
+  // Notification polling — reads recent App event log entries
   let lastNotifId = '';
   setInterval(() => {
-    const psNotif = `Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TWinUI/Operational','Microsoft-Windows-Shell-Core/ActionCenter'; ID=1,2,5,10} -MaxEvents 5 | Select-Object -First 1 | Select-Object -Property TimeCreated, Message | ConvertTo-Json`;
-    exec(`powershell -Command "${psNotif}"`, (err, stdout) => {
-      if (err || !stdout) return;
+    const psNotif = `
       try {
-        const data = JSON.parse(stdout);
-        const id = data.TimeCreated;
-        if (id !== lastNotifId) {
-          lastNotifId = id;
-          const msg = data.Message || 'Nueva notificación';
-          const appMatch = msg.match(/^([^:]+):/);
-          const app = appMatch ? appMatch[1] : 'Sistema';
-          const text = appMatch ? msg.substring(appMatch[0].length).trim() : msg;
-          win?.webContents.send('notification', { app, text });
+        $e = Get-WinEvent -LogName Application -MaxEvents 1 -ErrorAction SilentlyContinue |
+             Select-Object -Property TimeCreated, ProviderName, Message;
+        if ($e) {
+          $out = $e.TimeCreated.ToString('o') + '|||' + $e.ProviderName + '|||' + ($e.Message -split '\n')[0];
+          Write-Output $out
         }
-      } catch (e) { }
+      } catch {}
+    `.trim();
+    const buf = Buffer.from(psNotif, 'utf16le');
+    const b64 = buf.toString('base64');
+    exec(`powershell -EncodedCommand ${b64}`, { timeout: 6000 }, (err, stdout) => {
+      if (err || !stdout?.trim()) return;
+      const [id, app, msg] = stdout.trim().split('|||');
+      if (!id || id === lastNotifId) return;
+      lastNotifId = id;
+      if (!app || !msg) return;
+      win?.webContents.send('notification', { app: app.trim(), text: msg.trim().slice(0, 100) });
     });
-  }, 4000);
+  }, 8000);
   ipcMain.handle('get-current-media', () => lastMediaMsg);
 
   ipcMain.handle('toggle-wifi', async () => {

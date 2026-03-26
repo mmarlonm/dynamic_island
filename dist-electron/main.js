@@ -293,24 +293,28 @@ try {
   });
   let lastNotifId = "";
   setInterval(() => {
-    const psNotif = `Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TWinUI/Operational','Microsoft-Windows-Shell-Core/ActionCenter'; ID=1,2,5,10} -MaxEvents 5 | Select-Object -First 1 | Select-Object -Property TimeCreated, Message | ConvertTo-Json`;
-    exec(`powershell -Command "${psNotif}"`, (err, stdout) => {
-      if (err || !stdout) return;
+    const psNotif = `
       try {
-        const data = JSON.parse(stdout);
-        const id = data.TimeCreated;
-        if (id !== lastNotifId) {
-          lastNotifId = id;
-          const msg = data.Message || "Nueva notificación";
-          const appMatch = msg.match(/^([^:]+):/);
-          const app2 = appMatch ? appMatch[1] : "Sistema";
-          const text = appMatch ? msg.substring(appMatch[0].length).trim() : msg;
-          win == null ? void 0 : win.webContents.send("notification", { app: app2, text });
+        $e = Get-WinEvent -LogName Application -MaxEvents 1 -ErrorAction SilentlyContinue |
+             Select-Object -Property TimeCreated, ProviderName, Message;
+        if ($e) {
+          $out = $e.TimeCreated.ToString('o') + '|||' + $e.ProviderName + '|||' + ($e.Message -split '
+')[0];
+          Write-Output $out
         }
-      } catch (e) {
-      }
+      } catch {}
+    `.trim();
+    const buf = Buffer.from(psNotif, "utf16le");
+    const b64 = buf.toString("base64");
+    exec(`powershell -EncodedCommand ${b64}`, { timeout: 6e3 }, (err, stdout) => {
+      if (err || !(stdout == null ? void 0 : stdout.trim())) return;
+      const [id, app2, msg] = stdout.trim().split("|||");
+      if (!id || id === lastNotifId) return;
+      lastNotifId = id;
+      if (!app2 || !msg) return;
+      win == null ? void 0 : win.webContents.send("notification", { app: app2.trim(), text: msg.trim().slice(0, 100) });
     });
-  }, 4e3);
+  }, 8e3);
   ipcMain.handle("get-current-media", () => lastMediaMsg);
   ipcMain.handle("toggle-wifi", async () => {
     const cmd = `powershell -Command "if((Get-NetAdapter -Name 'Wi-Fi').Status -eq 'Up') { Disable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false } else { Enable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false }"`;
