@@ -267,6 +267,7 @@ setInterval(() => {
   prevCpus = currCpus;
   win.webContents.send("system-update", { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
 }, 2e3);
+let mediaProc = null;
 try {
   const mediaReaderPath = path.join(__dirname$1, "media-reader.js");
   if (!fs.existsSync(mediaReaderPath)) {
@@ -275,7 +276,7 @@ try {
     console.log(`[MAIN] Trying fallback path: ${fallbackPath}`);
   }
   console.log(`[MAIN] Forking media reader from: ${mediaReaderPath}`);
-  const mediaProc = fork(mediaReaderPath, [], {
+  mediaProc = fork(mediaReaderPath, [], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: ["pipe", "pipe", "pipe", "ipc"]
   });
@@ -338,39 +339,28 @@ try {
   const volCS = [
     'Add-Type -TypeDefinition @"',
     "using System.Runtime.InteropServices;",
-    // IMMDeviceEnumerator: EnumAudioEndpoints(slot0), GetDefaultAudioEndpoint(slot1)
-    '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-    "interface IEnum {",
-    "  [return:MarshalAs(UnmanagedType.IUnknown)] object EnumEp(int f,int s);",
-    "  [return:MarshalAs(UnmanagedType.IUnknown)] object GetDef(int f,int r);",
-    "}",
-    // IMMDevice: Activate is slot 0
-    '[Guid("D666063F-1587-4E43-81F1-B948E807363F"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-    "interface IDev {",
-    "  [return:MarshalAs(UnmanagedType.IUnknown)] object Act([MarshalAs(UnmanagedType.LPStruct)] System.Guid id,int c,int p);",
-    "}",
-    // IAudioEndpointVolume correct vtable:
-    // 0:RegisterControlChangeNotify 1:UnregisterControlChangeNotify 2:GetChannelCount
-    // 3:SetMasterVolumeLevel(dB)  4:SetMasterVolumeLevelScalar  5:GetMasterVolumeLevel(dB)  6:GetMasterVolumeLevelScalar
-    '[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-    "interface IVol {",
-    "  void R1();void R2();void R3();",
-    "  void SetDb(float v,System.Guid ctx);",
-    "  void SetScalar(float v,System.Guid ctx);",
-    "  void GetDb(out float v);",
-    "  void GetScalar(out float v);",
-    "}",
-    '[ComImport,Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDev {}',
+    '[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+    "interface IVol { int f1(); int f2(); int f3(); int f4(); int SetMasterVolumeLevelScalar(float f, System.Guid g); int GetMasterVolumeLevelScalar(out float f); }",
+    '[Guid("D6660639-8874-4034-AD23-37284F510F4F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+    "interface IDev { int Activate(ref System.Guid id, int cls, System.IntPtr p, out IVol v); }",
+    '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+    "interface IEnum { int GetDefaultAudioEndpoint(int df, int r, out IDev e); }",
+    '[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDev { }',
     "public class WinVol {",
-    "  static IVol Ep() {",
-    "    var e=(IEnum)(new MMDev());",
-    "    var d=(IDev)e.GetDef(0,1);",
-    "    return (IVol)d.Act(typeof(IVol).GUID,23,0);",
-    "  }",
-    "  public static int Get() { float f=0f; Ep().GetScalar(out f); return (int)(f*100+0.5); }",
-    "  public static void Set(int n) { Ep().SetScalar((float)n/100,System.Guid.Empty); }",
+    "    public static int Get() {",
+    "        var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(0, 0, out d);",
+    '        IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A");',
+    "        d.Activate(ref iid, 23, System.IntPtr.Zero, out v);",
+    "        float f; v.GetMasterVolumeLevelScalar(out f); return (int)(f * 100);",
+    "    }",
+    "    public static void Set(int n) {",
+    "        var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(0, 0, out d);",
+    '        IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A");',
+    "        d.Activate(ref iid, 23, System.IntPtr.Zero, out v);",
+    "        v.SetMasterVolumeLevelScalar((float)n / 100, System.Guid.Empty);",
+    "    }",
     "}",
-    "@ -Language CSharp",
+    '"@ -Language CSharp',
     "Write-Output __VOL_READY__"
   ].join("\n");
   const startVolPS = () => {

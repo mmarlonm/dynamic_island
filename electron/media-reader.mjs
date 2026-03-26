@@ -49,6 +49,7 @@ try {
 
   process.on('message', async (cmd) => {
     try {
+      // console.log('[CHILD] Received command:', cmd);
       if (cmd === 'playPause') await np.playPause();
       if (cmd === 'next') await np.nextTrack();
       if (cmd === 'prev') await np.previousTrack();
