@@ -306,6 +306,7 @@ export const DynamicIsland = () => {
   const [timerMins, setTimerMins]     = useState(25);
   const [timerSecs, setTimerSecs]     = useState(0);
   const timerRef = useRef<any>(null);
+  const lastCommandTimeRef = useRef(0);
   const volDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Selected calendar day
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
@@ -363,7 +364,7 @@ export const DynamicIsland = () => {
       });
     }
     (window as any).ipcRenderer?.on('meeting-update', (_: any, data: any) => {
-      console.log('Frontend Meeting Update:', data);
+      if (Date.now() - lastCommandTimeRef.current < 5000) return;
       setMeeting(data);
     });
     return () => clearInterval(clock);
@@ -430,6 +431,7 @@ export const DynamicIsland = () => {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const handleMeetingCommand = (cmd: string) => {
+    lastCommandTimeRef.current = Date.now();
     if (cmd === 'toggleMic') setMeeting(p => ({ ...p, micActive: !p.micActive }));
     if (cmd === 'toggleCam') setMeeting(p => ({ ...p, camActive: !p.camActive }));
     (window as any).ipcRenderer?.invoke('meeting-command', cmd);

@@ -102,7 +102,7 @@ function createWindow() {
     const [winW, winH] = win.getSize();
     
     // Final Anti-Toques: 200px width limit (enough for pill 180 + bubble spacing)
-    const widthLimit = isExpandedMode ? 400 : 200; 
+    const widthLimit = isExpandedMode ? 400 : 300; 
     const heightLimit = isExpandedMode ? winH + 40 : 35; 
 
     // relY >= 0 ensures we don't trigger if the mouse is "above" the screen
@@ -133,42 +133,36 @@ if (!singleInstanceLock) {
 
 const sendKeyToMeeting = (keys: string) => {
   const psKey = `
+    $ErrorActionPreference = 'SilentlyContinue';
     Add-Type -AssemblyName System.Windows.Forms;
     $sig = '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);';
-    $type = Add-Type -MemberDefinition $sig -Name "Win32" -Namespace "Win32API" -PassThru;
+    if (-not ([System.Management.Automation.PSTypeName]'Win32API.Win32').Type) {
+        Add-Type -MemberDefinition $sig -Name "Win32" -Namespace "Win32API";
+    }
     
-    $searchPattern = switch ('${currentMeetingApp}') {
-        'Zoom'  { 'Zoom Meeting|Zoom' }
-        'Meet'  { 'Meet - |Google Meet' }
-        Default { 'Meeting |Microsoft Teams|Llamada|Reunión' }
+    $search = if ('${currentMeetingApp}' -eq 'Zoom') { 'Zoom Meeting|Zoom' } elseif ('${currentMeetingApp}' -eq 'Meet') { 'Meet - |Google Meet' } else { 'Reunión|Llamada|Meeting|Teams' }
+    $p = Get-Process | Where-Object { $_.MainWindowTitle -match $search } | Sort-Object { $_.MainWindowTitle -match 'Reunión|Llamada|Meeting' } -Descending | Select-Object -First 1;
+    if (-not $p -and '${currentMeetingApp}' -eq 'Teams') {
+        $p = Get-Process -Name 'ms-teams', 'Teams' -ErrorAction SilentlyContinue | Sort-Object { $_.MainWindowTitle.Length } -Descending | Select-Object -First 1
     }
-
-    $proc = Get-Process | Where-Object { 
-        ($_.ProcessName -match 'Teams|Zoom|ms-teams|chrome|msedge|brave|opera|firefox') -and ($_.MainWindowTitle -match $searchPattern)
-    } | Select-Object -First 1;
-
-    if ($proc) {
-        $hwnd = $proc.MainWindowHandle;
-        for ($i=0; $i -lt 3; $i++) {
-            if ($hwnd -ne [IntPtr]::Zero) {
-                [Win32API.Win32]::SetForegroundWindow($hwnd);
-                Start-Sleep -m 500;
-                [System.Windows.Forms.SendKeys]::SendWait('${keys}');
-                exit 0;
-            }
-            $proc = Get-Process -Id $proc.Id; $hwnd = $proc.MainWindowHandle;
-            Start-Sleep -m 250;
+    if ($p) {
+        if ($p.MainWindowHandle -ne [IntPtr]::Zero) {
+            Write-Output "__DEBUG__Focusing: $($p.MainWindowTitle)"
+            [Win32API.Win32]::SetForegroundWindow($p.MainWindowHandle);
+            Start-Sleep -m 500;
+            [System.Windows.Forms.SendKeys]::SendWait('${keys}');
+        } else {
+            Write-Output "__DEBUG__Error: No Handle for $($p.ProcessName)"
         }
+    } else {
+        Write-Output "__DEBUG__Error: No Process found for $search"
     }
-    exit 1;
   `;
-  const cmd = `powershell -Command "${psKey.replace(/\n/g, ' ').trim()}"`;
-  console.log(`[MAIN] Sending keys '${keys}' to ${currentMeetingApp}...`);
+  console.log(`[MEET] Sending keys '${keys}' to ${currentMeetingApp}...`);
   return new Promise((resolve) => {
-    exec(cmd, (err, stdout) => {
-      if (stdout) console.log(stdout.trim());
-      resolve(!err);
-    });
+    const ps = spawn('powershell', ['-Command', psKey]);
+    ps.stdout!.on('data', (d: Buffer) => console.log('[MEET-CMD-LOG]', d.toString().trim()));
+    ps.on('close', () => resolve(true));
   });
 };
 
@@ -254,7 +248,7 @@ try {
     console.log('[MEET] Starting persistent meeting detection loop...');
     const psPath = path.join(os.tmpdir(), 'notchly-meet.ps1');
     const psCode = `
-      $ErrorActionPreference = 'SilentlyContinue'
+      $ErrorActionPreference = 'Continue'
       Write-Output "__DEBUG__PS_Script_Internal_Start"
       $code = @'
       using System;
@@ -268,28 +262,45 @@ try {
       [Guid("D6660639-8874-4034-AD23-37284F510F4F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
       interface IMMDevice { int Activate(ref Guid id, int cls, IntPtr p, out IAudioSessionManager2 m); }
       [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-      interface IMMDeviceEnumerator { int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices); }
-      [Guid("0BD7A1AD-7E6D-4359-8CA7-3C5644E2096F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-      interface IMMDeviceCollection { int GetCount(out int count); int Item(int index, out IMMDevice device); }
-      [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDevEnum { }
+      interface IMMDeviceEnumerator { int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); }
+      [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDevEnum { }
+      [Guid("87CE5492-9844-4115-9192-309714633857"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface ISimpleAudioVolume { int SetMasterVolume(float l, ref Guid c); int GetMasterVolume(out float l); int SetMute(bool m, ref Guid c); int GetMute(out bool m); }
+      [Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface IAudioMeterInformation { int GetPeakValue(out float peak); }
       public class MicCheck {
           public static bool IsInUse() {
               try {
                   var enumerator = (IMMDeviceEnumerator)new MMDevEnum();
-                  IMMDevice device;
-                  // 1 = Capture, 0 = Console role
-                  if (enumerator.GetDefaultAudioEndpoint(1, 0, out device) != 0) return false;
-                  IAudioSessionManager2 manager;
-                  var iid = new Guid("77AA9910-1EE6-440D-B95F-456477E6E273");
-                  if (device.Activate(ref iid, 23, IntPtr.Zero, out manager) != 0) return false;
-                  IAudioSessionEnumerator sessionEnum;
-                  if (manager.GetSessionEnumerator(out sessionEnum) != 0) return false;
-                  int count; sessionEnum.GetCount(out count);
-                  for (int i = 0; i < count; i++) {
-                      IAudioSessionControl session;
-                      if (sessionEnum.GetSession(i, out session) == 0) {
-                          int state; session.GetState(out state);
-                          if (state == 1) return true;
+                  int[] roles = { 0, 2 }; // 0=Console, 2=Communications
+                  foreach (int r in roles) {
+                      IMMDevice device;
+                      if (enumerator.GetDefaultAudioEndpoint(1, r, out device) == 0) {
+                          IAudioSessionManager2 manager;
+                          var iid = new Guid("77AA9910-1EE6-440D-B95F-456477E6E273");
+                          if (device.Activate(ref iid, 23, IntPtr.Zero, out manager) == 0) {
+                              IAudioSessionEnumerator sessionEnum;
+                              if (manager.GetSessionEnumerator(out sessionEnum) == 0) {
+                                  int count; sessionEnum.GetCount(out count);
+                                  for (int i = 0; i < count; i++) {
+                                      IAudioSessionControl session;
+                                      if (sessionEnum.GetSession(i, out session) == 0) {
+                                          int state; session.GetState(out state);
+                                          if (state == 1) { // Session Active
+                                              ISimpleAudioVolume vol = (ISimpleAudioVolume)session;
+                                              IAudioMeterInformation meter = (IAudioMeterInformation)session;
+                                              bool muted;
+                                              float peak = 0;
+                                              bool okVol = vol.GetMute(out muted) == 0;
+                                              bool okMeter = meter.GetPeakValue(out peak) == 0;
+                                              if (okVol && okMeter) {
+                                                  if (!muted && peak > 0.000001f) return true;
+                                              } else if (okVol && !muted) return true;
+                                          }
+                                      }
+                                  }
+                              }
+                          }
                       }
                   }
               } catch {}
@@ -297,56 +308,46 @@ try {
           }
       }
 '@
-      Add-Type -TypeDefinition $code
+      try {
+        Add-Type -TypeDefinition $code -ErrorAction Stop
+      } catch {
+        Write-Output "__DEBUG__AddType_Failed: $($_.Exception.Message)"
+      }
       Write-Output "__DEBUG__PS_Script_Started"
       while($true) {
         try {
-          # 1. C# Basic Check
+          # 1. C# Multi-Role Check
           $micInUse = [MicCheck]::IsInUse()
           
-          # 2. Optimized Registry Scan
+          # 2. Registry Scan (Only as fallback if C# is uncertain or for background apps)
           if (-not $micInUse) {
-            $parents = "HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone", 
-                       "HKLM:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone"
+            $parents = "HKCU:/Software/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/microphone", 
+                       "HKLM:/Software/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/microphone"
             foreach ($p in $parents) {
               if (Test-Path $p) {
-                # Look for entries where LastUsedTimeStop is 0
-                $entries = Get-ChildItem -Path $p -ErrorAction SilentlyContinue
-                foreach ($e in $entries) {
-                  $val = Get-ItemProperty -Path $e.PsPath -ErrorAction SilentlyContinue
-                  if ($val.LastUsedTimeStop -eq 0 -and $val.LastUsedTimeStart -gt 0) { $micInUse = $true; break }
-                  # Check one level deeper for Bluetooth/Specific devices
-                  $subs = Get-ChildItem -Path $e.PsPath -ErrorAction SilentlyContinue
-                  foreach($s in $subs) {
-                     $v2 = Get-ItemProperty -Path $s.PsPath -ErrorAction SilentlyContinue
-                     if ($v2.LastUsedTimeStop -eq 0 -and $v2.LastUsedTimeStart -gt 0) { $micInUse = $true; break }
-                  }
-                  if ($micInUse) { break }
+                # Recurse Depth 3 catches NonPackaged/App/Device-GUID
+                $active = Get-ChildItem -Path $p -Recurse -Depth 3 -ErrorAction SilentlyContinue | 
+                          Get-ItemProperty -ErrorAction SilentlyContinue | 
+                          Where-Object { $_.LastUsedTimeStop -eq 0 -and $_.LastUsedTimeStart -gt (Get-Date).AddSeconds(-15).Ticks }
+                if ($active) { 
+                   # Only trust Registry for Mic if it's NOT a known Meeting App that C# should have caught
+                   $micInUse = $true; break 
                 }
               }
-              if ($micInUse) { break }
             }
           }
           
-          # 3. Camera Scan (Registry primary)
+          # 3. Camera Scan (Registry primary, 3 levels deep)
           $camInUse = $false
-          $camParents = "HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam", 
-                        "HKLM:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam"
+          $camParents = "HKCU:/Software/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/webcam", 
+                        "HKLM:/Software/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/webcam"
           foreach ($p in $camParents) {
             if (Test-Path $p) {
-              $entries = Get-ChildItem -Path $p -ErrorAction SilentlyContinue
-              foreach ($e in $entries) {
-                $val = Get-ItemProperty -Path $e.PsPath -ErrorAction SilentlyContinue
-                if ($val.LastUsedTimeStop -eq 0 -and $val.LastUsedTimeStart -gt 0) { $camInUse = $true; break }
-                $subs = Get-ChildItem -Path $e.PsPath -ErrorAction SilentlyContinue
-                foreach($s in $subs) {
-                   $v2 = Get-ItemProperty -Path $s.PsPath -ErrorAction SilentlyContinue
-                   if ($v2.LastUsedTimeStop -eq 0 -and $v2.LastUsedTimeStart -gt 0) { $camInUse = $true; break }
-                }
-                if ($camInUse) { break }
-              }
+              $active = Get-ChildItem -Path $p -Recurse -Depth 3 -ErrorAction SilentlyContinue | 
+                        Get-ItemProperty -ErrorAction SilentlyContinue | 
+                        Where-Object { $_.LastUsedTimeStop -eq 0 -and $_.LastUsedTimeStart -gt 0 }
+              if ($active) { $camInUse = $true; break }
             }
-            if ($camInUse) { break }
           }
           
           # 4. Window Detection
@@ -380,21 +381,21 @@ try {
           
           Write-Output "__MEET__$([string]$micInUse)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)|$([string]$camInUse)"
         } catch {
-          Write-Output "__DEBUG__Error:$($_.Exception.Message)"
+          Write-Output "__DEBUG__Loop_Error: $($_.Exception.Message)"
         }
         Start-Sleep -m 500
       }
     `;
-    fs.writeFileSync(psPath, psCode);
-    psMeet = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-File', psPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    fs.writeFileSync(psPath, psCode, 'utf8');
+    psMeet = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-File', psPath]);
     psMeet.stdout!.on('data', (d: Buffer) => {
-      console.log(`[MEET-RAW] ${d.toString().trim()}`); 
-      psMeetBuf += d.toString();
+      const str = d.toString();
+      psMeetBuf += str;
       let nl: number;
       while ((nl = psMeetBuf.indexOf('\n')) !== -1) {
         const line = psMeetBuf.slice(0, nl).trim();
         psMeetBuf = psMeetBuf.slice(nl + 1);
-        if (line.startsWith('__DEBUG__')) { console.log('[MEET-DEBUG]', line.replace('__DEBUG__', '')); continue; }
+        if (line.startsWith('__DEBUG__')) { console.log('[MEET-DEBUG]', line); continue; }
         if (line.startsWith('__MEET__')) {
           const parts = line.replace('__MEET__', '').split('|');
           if (parts.length >= 5) {
@@ -544,6 +545,7 @@ try {
   });
 
   ipcMain.handle('meeting-command', async (_event, cmd: string) => {
+    console.log('[MEET-CMD] Action:', cmd, 'App:', currentMeetingApp);
     if (cmd === 'toggleMic') {
        const keys = currentMeetingApp === 'Zoom' ? '%a' : (currentMeetingApp === 'Meet' ? '^d' : '^+m');
        await sendKeyToMeeting(keys);
