@@ -113,30 +113,67 @@ const NotifBubble = ({ count, onClick }: { count: number; onClick: () => void })
   </motion.div>
 );
 // ── Meeting status bubble (pill-mode - Left Side) ───────────────────────────
-const CallBubble = ({ app, micMuted, onClick }: { app: string; micMuted: boolean; onClick: () => void }) => (
-  <motion.div
-    initial={{ scale: 0, opacity: 0, x: 20 }}
-    animate={{ scale: 1, opacity: 1, x: 0 }}
-    exit={{ scale: 0, opacity: 0, x: 20 }}
-    className="absolute right-full mr-4 pointer-events-auto select-none cursor-pointer"
-    style={{ top: 4 }}
-    onClick={onClick}
-  >
-    <div className="relative w-14 h-14 flex items-center justify-center">
-      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 56 56">
-        <circle cx="28" cy="28" r="22" strokeWidth="2" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.3)" />
-        <motion.circle cx="28" cy="28" r="22" strokeWidth="2" fill="transparent" stroke="#22c55e"
-          animate={{ strokeDasharray: ["1,138", "138,1", "1,138"], rotate: [0, 360] }}
-          transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-        />
-      </svg>
-      <div className="relative z-10 flex flex-col items-center leading-none text-green-500">
-        {micMuted ? <MicOff className="w-4 h-4 text-red-500" /> : <Video className="w-4 h-4" />}
-        <span className="text-[6px] font-black uppercase mt-1 tracking-tighter w-10 truncate text-center">{app}</span>
-      </div>
-    </div>
-  </motion.div>
-);
+const CallBubble = ({ app, micMuted, onClick }: { app: string; micMuted: boolean; onClick: () => void }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const ipc = (window as any).ipcRenderer;
+  const btnClass = "w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/10 active:scale-90 border border-transparent hover:border-white/10";
+
+  return (
+    <motion.div
+      onMouseEnter={() => { setIsHovered(true); ipc?.send('set-ignore-mouse-events', false); }}
+      onMouseLeave={() => { setIsHovered(false); }}
+      initial={{ scale: 0, opacity: 0, x: 20 }}
+      animate={{ 
+        scale: 1, 
+        opacity: 1, 
+        x: 0,
+        width: isHovered ? 160 : 56,
+      }}
+      exit={{ scale: 0, opacity: 0, x: 20 }}
+      className="absolute right-full mr-4 pointer-events-auto select-none cursor-pointer h-14 bg-black/70 backdrop-blur-3xl rounded-[24px] flex items-center justify-center overflow-hidden border border-white/10 shadow-2xl"
+      style={{ top: 4 }}
+      onClick={!isHovered ? onClick : undefined}
+    >
+      <AnimatePresence mode="wait">
+        {!isHovered ? (
+          <motion.div 
+            key="icon" 
+            initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+            className="flex flex-col items-center leading-none text-green-500"
+          >
+             {micMuted ? <MicOff className="w-4 h-4 text-red-500" /> : <Video className="w-4 h-4" />}
+             <span className="text-[6px] font-black uppercase mt-1 tracking-tighter w-10 truncate text-center">{app}</span>
+          </motion.div>
+        ) : (
+          <motion.div 
+            key="actions"
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+            className="flex items-center gap-2 w-full justify-center px-2"
+          >
+            <button 
+              onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'toggleMic'); }} 
+              className={btnClass}
+            >
+              <Mic className="w-4 h-4 text-white" />
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'toggleCam'); }} 
+              className={btnClass}
+            >
+              <Video className="w-4 h-4 text-white" />
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); ipc?.invoke('meeting-command', 'endCall'); }} 
+              className={clsx(btnClass, "bg-red-500/20 hover:bg-red-500/80 group")}
+            >
+              <PhoneOff className="w-4 h-4 text-red-400 group-hover:text-white" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
 
 // ── Unified Triple Circle Timer ─────────────────────────────────────────────
 const UnifiedCircularTimer = ({ 
@@ -509,15 +546,15 @@ export const DynamicIsland = () => {
           className={clsx('absolute inset-0 flex flex-col pt-2.5 px-4 pb-2', (!isExpanded || showSettings) && 'pointer-events-none')}
         >
           {/* Tab bar */}
-          <div className={clsx('flex items-center justify-between mb-2 pb-2 border-b shrink-0', isLightMode ? 'border-black/5' : 'border-white/5')}>
-            <div className="flex gap-1 items-center">
+          <div className={clsx('flex items-center justify-between mb-2 pb-2 border-b shrink-0 z-50', isLightMode ? 'border-black/5' : 'border-white/5')}>
+            <div className="flex gap-1 items-center overflow-x-auto no-scrollbar max-w-[80%]">
               {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas'] as const).map(v =>
                 visibleTabs.includes(v) && (
                   <button
                     key={v}
                     onClick={() => setActiveView(v)}
                     className={clsx(
-                      'px-3 py-1 rounded-full text-[9.5px] font-black flex items-center gap-1 transition-all uppercase',
+                      'px-3 py-1 rounded-full text-[9.5px] font-black flex items-center gap-1 transition-all uppercase whitespace-nowrap',
                       activeView === v
                         ? (isLightMode ? 'bg-black text-white' : 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.2)]')
                         : (isLightMode ? 'opacity-30 hover:opacity-60' : 'opacity-30 hover:opacity-70')
@@ -534,12 +571,20 @@ export const DynamicIsland = () => {
                 )
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 shrink-0 px-2">
               <SoundVisualizer isPlaying={media.isPlaying} />
-              <div onClick={() => setIsPinned(p => !p)} className={clsx('cursor-pointer p-1 rounded-lg transition-all', isPinned ? 'text-blue-500' : 'opacity-20 hover:opacity-70')}>
-                <Pin className="w-3.5 h-3.5" />
-              </div>
-              <Settings onClick={() => setShowSettings(s => !s)} className={clsx('w-3.5 h-3.5 cursor-pointer hover:rotate-90 transition-all', isLightMode ? 'opacity-30 hover:opacity-80' : 'opacity-30 hover:opacity-80')} />
+              <button 
+                onClick={() => setIsPinned(p => !p)} 
+                className={clsx('p-1.5 rounded-xl transition-all border', isPinned ? 'bg-blue-500 text-white border-blue-400' : 'opacity-40 hover:opacity-100 border-transparent hover:bg-white/10')}
+              >
+                <Pin className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => setShowSettings(s => !s)} 
+                className="p-1.5 rounded-xl opacity-40 hover:opacity-100 hover:bg-white/10 transition-all"
+              >
+                <Settings className="w-4 h-4 hover:rotate-90 transition-transform duration-500" />
+              </button>
             </div>
           </div>
 

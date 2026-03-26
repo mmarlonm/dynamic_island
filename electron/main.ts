@@ -14,7 +14,7 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 
 let win: BrowserWindow | null
 let isInMeetingApp = false
-let currentMeetingApp: 'Teams' | 'Zoom' | 'Meet' = 'Teams'
+let currentMeetingApp = 'Teams'
 let lastHasCam = false, lastHasMic = false
 let audioOutputDevice: 'Speaker' | 'Headphones' = 'Speaker'
 let lastWifi = true, lastBt = true
@@ -203,8 +203,8 @@ setInterval(() => {
   let totalDiff = 0, idleDiff = 0;
   for (let i = 0; i < currCpus.length; i++) {
     const prev = prevCpus[i].times, curr = currCpus[i].times;
-    const prevTotal = Object.values(prev).reduce((a: any, b: any) => a + b, 0);
-    const currTotal = Object.values(curr).reduce((a: any, b: any) => a + b, 0);
+    const prevTotal = Object.values(prev).reduce((a: number, b: number) => a + b, 0);
+    const currTotal = Object.values(curr).reduce((a: number, b: number) => a + b, 0);
     totalDiff += (currTotal as number) - (prevTotal as number);
     idleDiff += curr.idle - prev.idle;
   }
@@ -229,8 +229,12 @@ try {
     stdio: ['pipe', 'pipe', 'pipe', 'ipc']
   });
 
-  mediaProc.stdout?.on('data', (d) => console.log(`[MEDIA-CHILD STDOUT] ${d}`));
-  mediaProc.stderr?.on('data', (d) => console.error(`[MEDIA-CHILD ERROR] ${d}`));
+  if (mediaProc.stdout) {
+    mediaProc.stdout.on('data', (d: Buffer) => console.log(`[MEDIA-CHILD STDOUT] ${d.toString().trim()}`));
+  }
+  if (mediaProc.stderr) {
+    mediaProc.stderr.on('data', (d: Buffer) => console.error(`[MEDIA-CHILD ERROR] ${d.toString().trim()}`));
+  }
 
   let lastMediaMsg: any = null;
   mediaProc.on('message', (msg: any) => {
@@ -240,51 +244,102 @@ try {
   // System Notification Polling (Windows Event Logs)
   // v2.2.0: Advanced Meeting & Audio Detection
   let lastNotifId = '';
-  let lastMeetingState = false;
-  setInterval(() => {
-    const psMeeting = `
-      $micInUse = $false
-      $reg = "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone"
-      if (Test-Path $reg) {
-        $micInUse = (Get-ChildItem $reg -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0
-      }
-      $proc = Get-Process | Where-Object { $_.MainWindowTitle -match "Teams|Zoom|Meet|Llamada|Call|Reunión|Webex|Discord" -or $_.ProcessName -match "Teams|Zoom|ms-teams|Webex|vMix|Discord" } | Select-Object -First 1
-      $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
-      
-      $appName = if ($proc) { 
-          if ($proc.MainWindowTitle -match 'Teams' -or $proc.ProcessName -match 'Teams') { 'Teams' }
-          elseif ($proc.MainWindowTitle -match 'Zoom' -or $proc.ProcessName -match 'Zoom') { 'Zoom' }
-          elseif ($proc.MainWindowTitle -match 'Meet') { 'Meet' }
-          else { $proc.ProcessName }
-      } else { '' }
-      
-      $out = [string]$micInUse + "|||" + [string]$appName + "|||" + [string]$bt.FriendlyName
-      Write-Output $out
-    `.trim();
+  let psMeet: any = null;
+  let psMeetBuf = '';
 
-    exec(`powershell -Command "${psMeeting.replace(/\n/g, ' ')}"`, (err, stdout) => {
-      // console.log('[MEETING-POLL]', stdout?.trim());
-      if (err || !stdout?.trim()) return;
-      const parts = stdout.trim().split('|||');
-      if (parts.length < 3) return;
-      const [micUse, app, btDevice] = parts;
-      const isActive = micUse.toLowerCase() === 'true' || !!app;
-      
-      if (isActive) {
-        if (app.toLowerCase().includes('zoom')) currentMeetingApp = 'Zoom';
-        else if (app.toLowerCase().includes('meet')) currentMeetingApp = 'Meet';
-        else currentMeetingApp = 'Teams';
+  const startMeetPS = () => {
+    console.log('[MEET] Starting persistent meeting detection...');
+    const psCode = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $code = @'
+      using System;
+      using System.Runtime.InteropServices;
+      [Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface IAudioSessionEnumerator { int GetCount(out int c); int GetSession(int n, out IAudioSessionControl s); }
+      [Guid("F4B1A599-7266-4319-A8CA-E70ACB1118D7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface IAudioSessionControl { int GetState(out int s); int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string d); int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string i); }
+      [Guid("77AA9910-1EE6-440D-B95F-456477E6E273"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface IAudioSessionManager2 { int GetSessionEnumerator(out IAudioSessionEnumerator e); }
+      [Guid("D6660639-8874-4034-AD23-37284F510F4F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface IMMDevice { int Activate(ref Guid id, int cls, IntPtr p, out IAudioSessionManager2 m); }
+      [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface IMMDeviceEnumerator { int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); }
+      [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDevEnum { }
+      public class MicCheck {
+          public static bool IsInUse() {
+              try {
+                  var enumerator = (IMMDeviceEnumerator)new MMDevEnum();
+                  IMMDevice device;
+                  if (enumerator.GetDefaultAudioEndpoint(1, 0, out device) != 0) return false;
+                  IAudioSessionManager2 manager;
+                  var iid = new Guid("77AA9910-1EE6-440D-B95F-456477E6E273");
+                  if (device.Activate(ref iid, 23, IntPtr.Zero, out manager) != 0) return false;
+                  IAudioSessionEnumerator sessionEnum;
+                  if (manager.GetSessionEnumerator(out sessionEnum) != 0) return false;
+                  int count; sessionEnum.GetCount(out count);
+                  for (int i = 0; i < count; i++) {
+                      IAudioSessionControl session;
+                      if (sessionEnum.GetSession(i, out session) == 0) {
+                          int state; session.GetState(out state);
+                          if (state == 1) return true;
+                      }
+                  }
+              } catch {}
+              return false;
+          }
       }
-
-      win?.webContents.send('meeting-update', {
-        isActive,
-        app: app || (isActive ? 'Llamada Activa' : ''),
-        device: btDevice || 'Sistema',
-        micMuted: false 
-      });
+'@
+      Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+      while($true) {
+        $micInUse = [MicCheck]::IsInUse()
+        if (-not $micInUse) {
+           $regs = @("HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone")
+           foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
+        }
+        $found = Get-Process | Where-Object { $_.MainWindowTitle -match "Teams|Zoom|Meet|Llamada|Call|Reunión|Webex|Discord|Slack|Skype|WhatsApp|Telegram" -or $_.ProcessName -match "Teams|Zoom|ms-teams|Webex|vMix|Discord|Slack|Skype" } | Select-Object -First 1
+        $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
+        $appName = if($found){ if($found.MainWindowTitle -match 'Teams' -or $found.ProcessName -match 'Teams'){ 'Teams' } elseif($found.MainWindowTitle -match 'Zoom' -or $found.ProcessName -match 'Zoom'){ 'Zoom' } elseif($found.MainWindowTitle -match 'Meet'){ 'Meet' } else { $found.ProcessName } } else { '' }
+        Write-Output "__MEET__$([string]$micInUse)|$($appName)|$($bt.FriendlyName)"
+        Start-Sleep -Seconds 2
+      }
+    `;
+    psMeet = spawn('powershell', ['-NoExit', '-NonInteractive', '-Command', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    psMeet.stdin!.write(psCode + "\n");
+    psMeet.stdout!.on('data', (d: Buffer) => {
+      psMeetBuf += d.toString();
+      let nl: number;
+      while ((nl = psMeetBuf.indexOf('\n')) !== -1) {
+        const line = psMeetBuf.slice(0, nl).trim();
+        psMeetBuf = psMeetBuf.slice(nl + 1);
+        if (line.startsWith('__MEET__')) {
+          const parts = line.replace('__MEET__', '').split('|');
+          if (parts.length >= 3) {
+            const [micUse, app, btDevice] = parts;
+            const isActive = micUse.toLowerCase() === 'true'; // Strictly mic use
+            if (isActive) {
+              if (app.toLowerCase().includes('zoom')) currentMeetingApp = 'Zoom';
+              else if (app.toLowerCase().includes('meet')) currentMeetingApp = 'Meet';
+              else if (app.toLowerCase().includes('teams')) currentMeetingApp = 'Teams';
+              else currentMeetingApp = (app || 'Llamada');
+            }
+            win?.webContents.send('meeting-update', {
+              isActive,
+              app: isActive ? (app || 'Llamada Activa') : '', 
+              device: btDevice || 'Sistema',
+              micMuted: false
+            });
+          }
+        }
+      }
     });
+    psMeet.stderr.on('data', (d: Buffer) => console.error('[MEET-PS ERROR]', d.toString()));
+    psMeet.on('exit', () => setTimeout(startMeetPS, 5000));
+  };
+  startMeetPS();
 
-    // Also poll standard notifications
+  // Notification Polling (Windows Event Logs)
+  setInterval(() => {
+    if (!win || win.isDestroyed()) return;
     const psNotif = `
       $noise = 'SideBySide','VSS','ESENT','MSExchange','Security-SPP','Desktop Window Manager','.NET Runtime','Windows Error Reporting','DistributedCOM','Service Control Manager';
       $e = Get-WinEvent -LogName Application -MaxEvents 5 -ErrorAction SilentlyContinue | 
@@ -297,39 +352,37 @@ try {
     `.trim();
     exec(`powershell -Command "${psNotif.replace(/\n/g, ' ')}"`, (err, stdout) => {
       if (err || !stdout?.trim()) return;
-      const [id, appStr, msg] = stdout.trim().split('|||');
+      const parts = stdout.trim().split('|||');
+      if (parts.length < 3) return;
+      const [id, appStr, msg] = parts;
       if (!id || id === lastNotifId) return;
       lastNotifId = id;
       win?.webContents.send('notification', { app: appStr, text: msg });
     });
-  }, 5000);
+  }, 3000);
+
   ipcMain.handle('get-current-media', async () => {
     if (lastMediaMsg) return lastMediaMsg.data;
-    // Wait for the media process to send its first update
     await new Promise(r => setTimeout(r, 1200));
     return lastMediaMsg?.data || null;
   });
 
   ipcMain.handle('toggle-wifi', async () => {
-    const cmd = `powershell -Command "if((Get-NetAdapter -Name 'Wi-Fi').Status -eq 'Up') { Disable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false } else { Enable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false }"`;
-    exec(cmd);
+    exec(`powershell -Command "if((Get-NetAdapter -Name 'Wi-Fi').Status -eq 'Up') { Disable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false } else { Enable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false }"`);
     return true;
   });
 
   ipcMain.handle('toggle-bluetooth', async () => {
-    const cmd = `powershell -Command "Add-Type -AssemblyName Windows.Devices.Radios; \\$r=[Windows.Devices.Radios.Radio]::GetRadiosAsync().GetAwaiter().GetResult() | Where-Object { \\$_.Kind -eq 'Bluetooth' }; if(\\$r.State -eq 'On') { \\$r.SetStateAsync('Off') } else { \\$r.SetStateAsync('On') }"`;
-    exec(cmd);
+    exec(`powershell -Command "Add-Type -AssemblyName Windows.Devices.Radios; \\$r=[Windows.Devices.Radios.Radio]::GetRadiosAsync().GetAwaiter().GetResult() | Where-Object { \\$_.Kind -eq 'Bluetooth' }; if(\\$r.State -eq 'On') { \\$r.SetStateAsync('Off') } else { \\$r.SetStateAsync('On') }"`);
     return true;
   });
 
-  ipcMain.handle('media-command', (event, action) => mediaProc.send(action));
+  ipcMain.handle('media-command', (_event, action) => mediaProc?.send(action));
 
-  // ── Volume control — persistent PowerShell session (C# compiled ONCE) ─────
-  // We spawn one PS process that stays alive. The C# type is compiled at startup,
-  // then each get/set is just a single stdin line — no recompile overhead.
+  // ── Volume control ──────────────────────────────────────────────────────────
   let psVol: ReturnType<typeof spawn> | null = null;
   let psVolReady = false;
-  let psVolBuf   = '';
+  let psVolBuf = '';
   let psVolQueue: Array<(v: number | null) => void> = [];
 
   const volCS = [
@@ -344,42 +397,26 @@ try {
     '[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDev { }',
     'public class WinVol {',
     '    public static int Get() {',
-    '        var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(0, 0, out d);',
-    '        IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A");',
-    '        d.Activate(ref iid, 23, System.IntPtr.Zero, out v);',
-    '        float f; v.GetMasterVolumeLevelScalar(out f); return (int)(f * 100);',
+    '        try { var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(0, 0, out d); IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A"); d.Activate(ref iid, 23, System.IntPtr.Zero, out v); float f; v.GetMasterVolumeLevelScalar(out f); return (int)(f * 100); } catch { return 0; }',
     '    }',
     '    public static void Set(int n) {',
-    '        var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(0, 0, out d);',
-    '        IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A");',
-    '        d.Activate(ref iid, 23, System.IntPtr.Zero, out v);',
-    '        v.SetMasterVolumeLevelScalar((float)n / 100, System.Guid.Empty);',
+    '        try { var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(0, 0, out d); IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A"); d.Activate(ref iid, 23, System.IntPtr.Zero, out v); v.SetMasterVolumeLevelScalar((float)n / 100, System.Guid.Empty); } catch {}',
     '    }',
     '}',
     '"@ -Language CSharp',
-    'Write-Output __VOL_READY__',
+    'Write-Output __VOL_READY__'
   ].join('\n');
 
   const startVolPS = () => {
-    console.log('[VOL] Starting PowerShell volume process...');
-    psVol = spawn('powershell', ['-NoExit', '-NonInteractive', '-Command', '-'], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    psVol.stderr!.on('data', (d: Buffer) => {
-      console.error(`[VOL-PS ERROR] ${d.toString().trim()}`);
-    });
+    psVol = spawn('powershell', ['-NoExit', '-NonInteractive', '-Command', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
     psVol.stdout!.on('data', (d: Buffer) => {
       psVolBuf += d.toString();
       let nl: number;
       while ((nl = psVolBuf.indexOf('\n')) !== -1) {
-        const line = psVolBuf.slice(0, nl).replace(/\r/g, '').trim();
+        const line = psVolBuf.slice(0, nl).trim();
         psVolBuf = psVolBuf.slice(nl + 1);
-        if (line === '__VOL_READY__') {
-          psVolReady = true;
-          // Push initial volume to renderer
-          psVol!.stdin!.write('[WinVol]::Get()\n');
-        } else if (/^\d+$/.test(line)) {
+        if (line === '__VOL_READY__') { psVolReady = true; psVol!.stdin!.write('[WinVol]::Get()\n'); }
+        else if (/^\d+$/.test(line)) {
           const v = parseInt(line, 10);
           const cb = psVolQueue.shift();
           if (cb) cb(v);
@@ -387,34 +424,30 @@ try {
         }
       }
     });
-    psVol.on('exit', () => { psVolReady = false; psVol = null; });
     psVol.stdin!.write(volCS + '\n');
+    psVol.on('exit', () => { psVolReady = false; setTimeout(startVolPS, 5000); });
   };
-
-  startVolPS(); // initialise immediately on app start
+  startVolPS();
 
   const getVol = (): Promise<number | null> => new Promise(res => {
-    if (!psVolReady || !psVol) { res(null); return; }
+    if (!psVolReady || !psVol) return res(null);
     psVolQueue.push(res);
     psVol.stdin!.write('[WinVol]::Get()\n');
   });
 
-  const setVol = (v: number): void => {
-    if (!psVolReady || !psVol) return;
-    const clamped = Math.max(0, Math.min(100, Math.round(v)));
-    psVol.stdin!.write(`[WinVol]::Set(${clamped})\n`);
-  };
-
   ipcMain.handle('get-volume', async () => await getVol());
-  ipcMain.handle('set-volume', (_e, v: number) => { setVol(v); return true; });
+  ipcMain.handle('set-volume', (_e, v: number) => { 
+    const clamped = Math.round(Math.max(0, Math.min(100, v)));
+    psVol?.stdin!.write(`[WinVol]::Set(${clamped})\n`);
+    return true; 
+  });
 
-  // Poll volume every 3s to detect external changes
   setInterval(async () => {
     const v = await getVol();
     if (v !== null) win?.webContents.send('volume-update', v);
-  }, 3000);
+  }, 4000);
 
-  ipcMain.handle('open-app', async (event, appName: string) => {
+  ipcMain.handle('open-app', async (_event, appName: string) => {
     const lower = appName.toLowerCase();
     if (lower.includes('chrome')) exec('start chrome');
     else if (lower.includes('spotify')) exec('start spotify');
@@ -422,7 +455,8 @@ try {
     else exec(`start "" "${appName}"`);
     return true;
   });
-  ipcMain.handle('meeting-command', async (_, cmd) => {
+
+  ipcMain.handle('meeting-command', async (_event, cmd: string) => {
     if (cmd === 'toggleMic') {
        const ps = `
 $code = @'
@@ -436,22 +470,20 @@ interface IEnum { int GetDefaultAudioEndpoint(int df, int r, out IDev e); }
 [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDev { }
 public class Mic {
     public static void Toggle() {
-        var e = (IEnum)new MMDev(); IDev d; 
-        e.GetDefaultAudioEndpoint(1, 0, out d); // 1 is eCapture
+        var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(1, 0, out d);
         IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-        d.Activate(ref iid, 23, System.IntPtr.Zero, out v);
-        bool m; v.GetMute(out m); v.SetMute(!m, System.Guid.Empty);
+        if (d.Activate(ref iid, 23, System.IntPtr.Zero, out v) == 0) {
+          bool m; v.GetMute(out m); v.SetMute(!m, System.Guid.Empty);
+        }
     }
 }
 '@
 Add-Type -TypeDefinition $code; [Mic]::Toggle()
-`.trim().replace(/"/g, '\"');
-       exec(`powershell -Command "${ps}"`);
+`.trim();
+       exec(`powershell -Command "${ps.replace(/\n/g, ' ')}"`);
     } else if (cmd === 'toggleCam') {
-       // Hotkey fallback for Camera
-       if (currentMeetingApp === 'Zoom') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('%v')"`);
-       else if (currentMeetingApp === 'Meet') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^e')"`);
-       else exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^+o')"`);
+       const keys = currentMeetingApp === 'Zoom' ? '%v' : (currentMeetingApp === 'Meet' ? '^e' : '^+o');
+       exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('${keys}')"`);
     } else if (cmd === 'endCall') {
        if (currentMeetingApp === 'Zoom') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('%q'); Start-Sleep -m 200; (new-object -com wscript.shell).SendKeys('{ENTER}')"`);
        else if (currentMeetingApp === 'Meet') exec(`powershell -Command "(new-object -com wscript.shell).SendKeys('^w')"`);
@@ -459,8 +491,8 @@ Add-Type -TypeDefinition $code; [Mic]::Toggle()
     }
   });
 
-  app.on('before-quit', () => mediaProc?.kill());
-} catch (err) { console.error('Failed to init media process:', err); }
+  app.on('before-quit', () => { mediaProc?.kill(); psMeet?.kill(); psVol?.kill(); });
+} catch (err) { console.error('[MAIN] CRITICAL Initialization error:', err); }
 
 app.on('window-all-closed', () => {
   win = null;
