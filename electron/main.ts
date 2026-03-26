@@ -94,26 +94,33 @@ function createWindow() {
   setInterval(() => {
     if (!win || win.isDestroyed()) return;
     const { x, y } = screen.getCursorScreenPoint();
-    const [winX, winY] = win.getPosition();
-    const [winW] = win.getSize();
+    const b = win.getBounds();
 
-    // Absolute center of the window (which aligns with the island)
-    const centerX = winX + winW / 2;
-    const relX = x - centerX;
-    const relY = y - winY;
+    // Calculate relative to window center top
+    const relX = x - (b.x + b.width / 2);
+    const relY = y - b.y;
+    const [winW, winH] = win.getSize();
+    
+    // Nuclear Robustness: Use the actual window size plus a small buffer
+    // The window is always centered horizontally on the screen
+    const widthLimit = Math.max(400, winW / 2); // In expanded mode, winW is full screen, so we cap it or use a large value
+    // If winW is full screen (e.g. 1920), winW/2 is 960. Correct.
+    // If winW is small (e.g. 360), use 400 for a bit of margin.
+    
+    // IMPORTANT: If not in expanded mode, we want a tighter hitbox to allow clicking around the pill
+    const currentWidthLimit = isExpandedMode ? 450 : 200;
+    const currentHeightLimit = winH + 40;
 
-    // Hitbox Logic:
-    const widthLimit = isExpandedMode ? 345 : 190;
-    const heightLimit = isExpandedMode ? currentIslandHeight + 15 : 120; // Increased for Deep Curve 100px
+    const isInside = (Math.abs(relX) <= currentWidthLimit && relY >= -20 && relY <= currentHeightLimit);
 
-    const isInside = (Math.abs(relX) <= widthLimit && relY >= -5 && relY <= heightLimit);
+    // DEBUG LOGS (unconditional if near center)
+    if (Math.abs(relX) < 600 && relY > -100 && relY < 900) {
+      console.log(`[HITBOX] x:${Math.round(relX)} y:${Math.round(relY)} IN:${isInside} EXP:${isExpandedMode} winH:${winH}`);
+    }
 
-    // Toggle ignore mouse events
     win.setIgnoreMouseEvents(!isInside, { forward: true });
-
-    // Notify renderer for local effects if needed
     win.webContents.send('mouse-proximity', { isNear: isInside, relX, relY });
-  }, 50);
+  }, 35);
 
   // v2.1.0: Advanced Meeting & Audio Detection
   const checkSystemStatus = () => {
@@ -371,7 +378,12 @@ try {
       win?.webContents.send('notification', { app: app.trim(), text: msg.trim().slice(0, 100) });
     });
   }, 8000);
-  ipcMain.handle('get-current-media', () => lastMediaMsg);
+  ipcMain.handle('get-current-media', async () => {
+    if (lastMediaMsg) return lastMediaMsg.data;
+    // Wait for the media process to send its first update
+    await new Promise(r => setTimeout(r, 1200));
+    return lastMediaMsg?.data || null;
+  });
 
   ipcMain.handle('toggle-wifi', async () => {
     const cmd = `powershell -Command "if((Get-NetAdapter -Name 'Wi-Fi').Status -eq 'Up') { Disable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false } else { Enable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false }"`;
@@ -430,13 +442,18 @@ try {
     '  public static int Get() { float f=0f; Ep().GetScalar(out f); return (int)(f*100+0.5); }',
     '  public static void Set(int n) { Ep().SetScalar((float)n/100,System.Guid.Empty); }',
     '}',
-    '"@ -Language CSharp 2>$null',
+    '@ -Language CSharp',
     'Write-Output __VOL_READY__',
   ].join('\n');
 
   const startVolPS = () => {
+    console.log('[VOL] Starting PowerShell volume process...');
     psVol = spawn('powershell', ['-NoExit', '-NonInteractive', '-Command', '-'], {
-      stdio: ['pipe', 'pipe', 'ignore']
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    psVol.stderr!.on('data', (d: Buffer) => {
+      console.error(`[VOL-PS ERROR] ${d.toString().trim()}`);
     });
     psVol.stdout!.on('data', (d: Buffer) => {
       psVolBuf += d.toString();

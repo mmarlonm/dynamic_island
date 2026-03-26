@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
-  EyeOff, BellOff, Timer, RotateCcw, ChevronUp, ChevronDown
+  EyeOff, BellOff, Timer, RotateCcw
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -38,9 +38,18 @@ const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => (
 );
 
 // ── Floating timer circle (pill-mode) ────────────────────────────────────────
-const TimerBubble = ({ time, total, isActive }: { time: number; total: number; isActive: boolean }) => {
+const TimerBubble = ({ time, total, isActive, isLightMode }: { time: number; total: number; isActive: boolean; isLightMode: boolean }) => {
   const pct = total > 0 ? time / total : 0;
   const r = 22, circ = 2 * Math.PI * r;
+  const fmt = (s: number) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return h > 0 
+      ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+      : `${m}:${String(sec).padStart(2, '0')}`;
+  };
+
   return (
     <motion.div
       initial={{ scale: 0, opacity: 0, x: -6 }}
@@ -51,7 +60,10 @@ const TimerBubble = ({ time, total, isActive }: { time: number; total: number; i
     >
       <div className="relative w-14 h-14 flex items-center justify-center">
         <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 56 56">
-          <circle cx="28" cy="28" r={r} strokeWidth="3" fill="rgba(0,0,0,0.88)" stroke="rgba(255,255,255,0.08)" />
+          <circle cx="28" cy="28" r={r} strokeWidth="3" 
+            fill={isLightMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.88)'} 
+            stroke={isLightMode ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'} 
+          />
           <motion.circle
             cx="28" cy="28" r={r} strokeWidth="3" fill="transparent"
             stroke="#3b82f6"
@@ -62,8 +74,8 @@ const TimerBubble = ({ time, total, isActive }: { time: number; total: number; i
           />
         </svg>
         <div className="relative z-10 flex flex-col items-center leading-none">
-          <span className="text-[10px] font-black text-white tabular-nums">
-            {`${Math.floor(time / 60)}:${String(time % 60).padStart(2, '0')}`}
+          <span className={clsx("text-[9px] font-black tabular-nums", isLightMode ? "text-zinc-800" : "text-white")}>
+            {fmt(time)}
           </span>
           <span className="text-[6px] text-blue-400 uppercase font-black tracking-wider mt-0.5">
             {isActive ? 'ON' : 'OFF'}
@@ -101,7 +113,114 @@ const NotifBubble = ({ count, onClick }: { count: number; onClick: () => void })
   </motion.div>
 );
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Unified Triple Circle Timer ─────────────────────────────────────────────
+const UnifiedCircularTimer = ({ 
+  hours, mins, secs, onChange, disabled, isLightMode 
+}: { 
+  hours: number; mins: number; secs: number; 
+  onChange: (type: 'h' | 'm' | 's', v: number) => void; 
+  disabled: boolean; isLightMode: boolean 
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [activeRing, setActiveRing] = useState<'h' | 'm' | 's' | null>(null);
+
+  const R_H = 155, R_M = 115, R_S = 75, TOL = 22;
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (disabled || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dist = Math.sqrt(Math.pow(e.clientX - cx, 2) + Math.pow(e.clientY - cy, 2));
+
+    if (Math.abs(dist - R_H) < TOL) setActiveRing('h');
+    else if (Math.abs(dist - R_M) < TOL) setActiveRing('m');
+    else if (Math.abs(dist - R_S) < TOL) setActiveRing('s');
+  };
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!activeRing || disabled || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const angle = Math.atan2(e.clientY - cy, e.clientX - cx);
+      const normalized = (angle + Math.PI / 2 + 2 * Math.PI) % (2 * Math.PI);
+      const max = activeRing === 'h' ? 12 : 60;
+      const val = Math.round((normalized / (2 * Math.PI)) * max) % max;
+      onChange(activeRing, val);
+    };
+    const handleUp = () => setActiveRing(null);
+
+    if (activeRing) {
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [activeRing, disabled]);
+
+  const Ring = ({ r, val, max, color, label }: any) => {
+    // 0 is at top (12 o'clock), 360 is full circle
+    const angle = (val / max) * 360;
+    const circ = 2 * Math.PI * r;
+    
+    return (
+      <g>
+        {/* Background Gray Ring */}
+        <circle cx="200" cy="200" r={r} fill="none" strokeWidth="4" 
+          stroke={isLightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)'} 
+        />
+        {/* Colored Progress Arc (rotated to start at top) */}
+        <motion.circle
+          cx="200" cy="200" r={r} fill="none" strokeWidth={label === 'H' ? 10 : 8} stroke={color}
+          strokeDasharray={circ}
+          animate={{ strokeDashoffset: circ * (1 - (val || 0.001) / max) }}
+          transform="rotate(-90 200 200)"
+          style={{ filter: `drop-shadow(0 0 12px ${color})`, opacity: disabled ? 0.35 : 0.9 }}
+          transition={{ type: 'spring', stiffness: 100, damping: 20 }}
+          strokeLinecap="round"
+        />
+        {/* Unit Label */}
+        <text 
+          x="200" y={200 - r - 12} 
+          textAnchor="middle" 
+          fill={color} 
+          className="text-[11px] font-black opacity-60 select-none pointer-events-none tracking-tighter"
+        >
+          {label}
+        </text>
+        {/* Interactive Handle (Dot) */}
+        {!disabled && (
+          <motion.circle
+            cx={200 + r * Math.sin((angle * Math.PI) / 180)}
+            cy={200 - r * Math.cos((angle * Math.PI) / 180)}
+            r="12" fill={color}
+            style={{ filter: `drop-shadow(0 0 15px ${color})`, cursor: 'pointer' }}
+            whileHover={{ scale: 1.2 }}
+            whileTap={{ scale: 0.9 }}
+          />
+        )}
+      </g>
+    );
+  };
+
+  return (
+    <div 
+      ref={containerRef}
+      className="relative w-[400px] h-[400px] flex items-center justify-center pointer-events-auto"
+      onMouseDown={handleMouseDown}
+    >
+      <svg width="400" height="400" viewBox="0 0 400 400" className="overflow-visible">
+        <Ring r={R_H} val={hours} max={12} color="#3b82f6" label="H" />
+        <Ring r={R_M} val={mins} max={60} color="#8b5cf6" label="M" />
+        <Ring r={R_S} val={secs} max={60} color="#ec4899" label="S" />
+      </svg>
+    </div>
+  );
+};
 export const DynamicIsland = () => {
   const [isHovered, setIsHovered]     = useState(false);
   const [isPinned, setIsPinned]       = useState(false);
@@ -122,6 +241,7 @@ export const DynamicIsland = () => {
   const [timerTime, setTimerTime]     = useState(0);
   const [timerTotal, setTimerTotal]   = useState(0);
   const [timerActive, setTimerActive] = useState(false);
+  const [timerHours, setTimerHours]   = useState(0);
   const [timerMins, setTimerMins]     = useState(25);
   const [timerSecs, setTimerSecs]     = useState(0);
   const timerRef = useRef<any>(null);
@@ -187,7 +307,7 @@ export const DynamicIsland = () => {
   }, [timerActive, timerTime]);
 
   const startTimer = () => {
-    const total = timerMins * 60 + timerSecs;
+    const total = timerHours * 3600 + timerMins * 60 + timerSecs;
     if (total === 0) return;
     setTimerTotal(total);
     setTimerTime(total);
@@ -200,15 +320,24 @@ export const DynamicIsland = () => {
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     if (!ipc) return;
-    const h = showSettings ? 600 : isExpanded ? 220 : 80;
+    const h = showSettings ? 600 : isExpanded ? (activeView === 'Herramientas' ? 480 : 220) : 80;
     ipc.send('set-window-height', h);
-    ipc.send('set-is-expanded', isExpanded);
-  }, [isExpanded, showSettings]);
+    // Robust expansion report: true if any state implies expansion
+    const effectivelyExpanded = isExpanded || showSettings || (activeView && activeView !== 'Resumen');
+    ipc.send('set-is-expanded', !!effectivelyExpanded);
+  }, [isExpanded, showSettings, activeView]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const openApp   = (app: string) => (window as any).ipcRenderer?.invoke('open-app', app);
   const toggleTab = (tab: string) => setVisibleTabs(p => p.includes(tab) ? p.filter(x => x !== tab) : [...p, tab]);
-  const fmtTime   = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const fmtTime   = (s: number) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return h > 0 
+      ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+      : `${m}:${String(sec).padStart(2, '0')}`;
+  };
   const setVol = (v: number) => {
     setVolume(v); // instant visual
     if (volDebounceRef.current) clearTimeout(volDebounceRef.current);
@@ -238,7 +367,7 @@ export const DynamicIsland = () => {
         }}
         animate={{
           width: showSettings ? 720 : isExpanded ? 680 : 360,
-          height: showSettings ? 480 : isExpanded ? 180 : 66,
+          height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' ? 450 : 180) : 66,
         }}
         transition={{ type: 'spring', stiffness: 220, damping: 26 }}
       >
@@ -535,55 +664,54 @@ export const DynamicIsland = () => {
 
             {/* HERRAMIENTAS */}
             {activeView === 'Herramientas' && (
-              <div className="absolute inset-0 flex items-center justify-between px-8">
-                {/* Timer display / ring */}
-                <div className="relative w-24 h-24 flex items-center justify-center shrink-0">
-                  <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 96 96">
-                    <circle cx="48" cy="48" r="42" strokeWidth="4" fill="transparent" stroke="rgba(255,255,255,0.06)" />
-                    <motion.circle
-                      cx="48" cy="48" r="42" strokeWidth="4" fill="transparent"
-                      stroke="#3b82f6"
-                      strokeDasharray={2 * Math.PI * 42}
-                      animate={{ strokeDashoffset: 2 * Math.PI * 42 * (timerTotal > 0 ? 1 - timerTime / timerTotal : 0) }}
-                      style={{ filter: 'drop-shadow(0 0 6px #3b82f6)' }}
-                      transition={{ duration: 0.5 }}
-                    />
-                  </svg>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <span className="text-[20px] font-black tabular-nums tracking-tighter">{fmtTime(timerTime)}</span>
-                    <span className="text-[8px] uppercase font-black text-blue-400 tracking-widest mt-0.5">{t.timer}</span>
-                  </div>
-                </div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="relative w-[450px] h-[450px] flex items-center justify-center">
+                  
+                  {/* Unified Triple Timer System */}
+                  <UnifiedCircularTimer 
+                    hours={timerActive ? (timerTime / 3600) : timerHours}
+                    mins={timerActive ? ((timerTime % 3600) / 60) : timerMins}
+                    secs={timerActive ? (timerTime % 60) : timerSecs}
+                    onChange={(type, val) => {
+                      if (type === 'h') setTimerHours(val);
+                      else if (type === 'm') setTimerMins(val);
+                      else setTimerSecs(val);
+                    }}
+                    disabled={timerActive}
+                    isLightMode={isLightMode}
+                  />
 
-                {/* Controls */}
-                <div className="flex flex-col gap-3 flex-1 pl-8">
-                  {/* Time picker */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex flex-col items-center gap-1">
-                      <button onClick={() => setTimerMins(m => Math.min(m + 1, 99))} className="opacity-40 hover:opacity-100 transition-all"><ChevronUp className="w-4 h-4" /></button>
-                      <div className="text-[22px] font-black tabular-nums w-12 text-center">{String(timerMins).padStart(2, '0')}</div>
-                      <button onClick={() => setTimerMins(m => Math.max(m - 1, 0))} className="opacity-40 hover:opacity-100 transition-all"><ChevronDown className="w-4 h-4" /></button>
+                  {/* Center Controls — inside a smaller safe zone */}
+                  <div className="absolute z-30 flex flex-col items-center pointer-events-auto">
+                    <div className="flex flex-col items-center mb-1">
+                      <span className="text-[22px] font-black tabular-nums tracking-tighter leading-none">
+                        {fmtTime(timerTime || (timerHours * 3600 + timerMins * 60 + timerSecs))}
+                      </span>
+                      <span className="text-[8px] font-black uppercase text-blue-500 tracking-[0.2em] mt-0.5">
+                        {timerActive ? 'EN MARCHA' : 'DESLIZA'}
+                      </span>
                     </div>
-                    <span className="text-[22px] font-black opacity-30 mb-0.5">:</span>
-                    <div className="flex flex-col items-center gap-1">
-                      <button onClick={() => setTimerSecs(s => Math.min(s + 5, 55))} className="opacity-40 hover:opacity-100 transition-all"><ChevronUp className="w-4 h-4" /></button>
-                      <div className="text-[22px] font-black tabular-nums w-12 text-center">{String(timerSecs).padStart(2, '0')}</div>
-                      <button onClick={() => setTimerSecs(s => Math.max(s - 5, 0))} className="opacity-40 hover:opacity-100 transition-all"><ChevronDown className="w-4 h-4" /></button>
+                    
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => timerActive ? setTimerActive(false) : (timerTime > 0 ? setTimerActive(true) : startTimer())}
+                        className={clsx(
+                          "w-12 h-12 rounded-full flex items-center justify-center transition-all",
+                          timerActive ? "bg-red-500/20 text-red-500 border border-red-500/30" : "bg-blue-500 text-white shadow-xl shadow-blue-500/30"
+                        )}
+                      >
+                        {timerActive ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-1" />}
+                      </button>
+                      <button 
+                        onClick={resetTimer} 
+                        className={clsx(
+                          "w-10 h-10 rounded-full flex items-center justify-center transition-all border",
+                          isLightMode ? "border-black/10 bg-black/5" : "border-white/10 bg-white/5"
+                        )}
+                      >
+                        <RotateCcw className="w-4 h-4 opacity-50" />
+                      </button>
                     </div>
-                  </div>
-
-                  {/* Start / Pause / Reset */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => timerActive ? setTimerActive(false) : (timerTime > 0 ? setTimerActive(true) : startTimer())}
-                      className="flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
-                      style={{ background: timerActive ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.8)', color: timerActive ? '#f87171' : 'white', border: timerActive ? '1px solid rgba(239,68,68,0.3)' : 'none' }}
-                    >
-                      {timerActive ? t.pause : t.start}
-                    </button>
-                    <button onClick={resetTimer} className="w-10 h-10 rounded-xl flex items-center justify-center transition-all opacity-40 hover:opacity-100" style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
               </div>
@@ -721,7 +849,7 @@ export const DynamicIsland = () => {
       <AnimatePresence>
         {showTimerBubble && (
           <div style={{ marginLeft: 6 }}>
-            <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} />
+            <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} isLightMode={isLightMode} />
           </div>
         )}
       </AnimatePresence>

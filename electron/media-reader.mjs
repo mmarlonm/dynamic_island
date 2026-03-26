@@ -23,23 +23,23 @@ try {
   }
 
   if (!NowPlayingModule) {
-      throw new Error('Could not find NowPlaying module');
+    throw new Error('Could not find NowPlaying module');
   }
 
   const np = new NowPlayingModule((msg) => {
     if (process.send) {
-        process.send({ 
-            type: 'MEDIA_UPDATE', 
-            data: {
-                title: msg.trackName || 'Sin Reproducción',
-                artist: msg.artist || [],
-                album: msg.album || '',
-                isPlaying: msg.isPlaying || false,
-                thumbnail: msg.thumbnail || '',
-                id: msg.id || 'system',
-                progress: 0 
-            } 
-        });
+      process.send({
+        type: 'MEDIA_UPDATE',
+        data: {
+          title: msg.trackName || 'Sin Reproducción',
+          artist: msg.artist || [],
+          album: msg.album || '',
+          isPlaying: msg.isPlaying || false,
+          thumbnail: msg.thumbnail || '',
+          id: msg.id || 'system',
+          progress: 0
+        }
+      });
     }
   });
 
@@ -62,4 +62,4 @@ try {
 }
 
 // Global Keep-alive
-setInterval(() => {}, 1000);
+setInterval(() => { }, 1000);

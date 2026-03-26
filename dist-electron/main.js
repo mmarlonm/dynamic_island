@@ -59,10 +59,8 @@ function createWindow() {
     }
   });
   let isExpandedMode = false;
-  let currentIslandHeight = 75;
   ipcMain.on("set-window-height", (event, h) => {
     if (win && !win.isDestroyed()) {
-      currentIslandHeight = h;
       win.setSize(windowWidth, Math.max(h, 40), true);
     }
   });
@@ -74,17 +72,19 @@ function createWindow() {
   setInterval(() => {
     if (!win || win.isDestroyed()) return;
     const { x, y } = screen.getCursorScreenPoint();
-    const [winX, winY] = win.getPosition();
-    const [winW] = win.getSize();
-    const centerX = winX + winW / 2;
-    const relX = x - centerX;
-    const relY = y - winY;
-    const widthLimit = isExpandedMode ? 345 : 190;
-    const heightLimit = isExpandedMode ? currentIslandHeight + 15 : 120;
-    const isInside = Math.abs(relX) <= widthLimit && relY >= -5 && relY <= heightLimit;
+    const b = win.getBounds();
+    const relX = x - (b.x + b.width / 2);
+    const relY = y - b.y;
+    const [winW, winH] = win.getSize();
+    const currentWidthLimit = isExpandedMode ? 450 : 200;
+    const currentHeightLimit = winH + 40;
+    const isInside = Math.abs(relX) <= currentWidthLimit && relY >= -20 && relY <= currentHeightLimit;
+    if (Math.abs(relX) < 600 && relY > -100 && relY < 900) {
+      console.log(`[HITBOX] x:${Math.round(relX)} y:${Math.round(relY)} IN:${isInside} EXP:${isExpandedMode} winH:${winH}`);
+    }
     win.setIgnoreMouseEvents(!isInside, { forward: true });
     win.webContents.send("mouse-proximity", { isNear: isInside, relX, relY });
-  }, 50);
+  }, 35);
   const checkSystemStatus = () => {
     if (!win || win.isDestroyed()) return;
     const script = `
@@ -315,7 +315,11 @@ try {
       win == null ? void 0 : win.webContents.send("notification", { app: app2.trim(), text: msg.trim().slice(0, 100) });
     });
   }, 8e3);
-  ipcMain.handle("get-current-media", () => lastMediaMsg);
+  ipcMain.handle("get-current-media", async () => {
+    if (lastMediaMsg) return lastMediaMsg.data;
+    await new Promise((r) => setTimeout(r, 1200));
+    return (lastMediaMsg == null ? void 0 : lastMediaMsg.data) || null;
+  });
   ipcMain.handle("toggle-wifi", async () => {
     const cmd = `powershell -Command "if((Get-NetAdapter -Name 'Wi-Fi').Status -eq 'Up') { Disable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false } else { Enable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false }"`;
     exec(cmd);
@@ -366,12 +370,16 @@ try {
     "  public static int Get() { float f=0f; Ep().GetScalar(out f); return (int)(f*100+0.5); }",
     "  public static void Set(int n) { Ep().SetScalar((float)n/100,System.Guid.Empty); }",
     "}",
-    '"@ -Language CSharp 2>$null',
+    "@ -Language CSharp",
     "Write-Output __VOL_READY__"
   ].join("\n");
   const startVolPS = () => {
+    console.log("[VOL] Starting PowerShell volume process...");
     psVol = spawn("powershell", ["-NoExit", "-NonInteractive", "-Command", "-"], {
-      stdio: ["pipe", "pipe", "ignore"]
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    psVol.stderr.on("data", (d) => {
+      console.error(`[VOL-PS ERROR] ${d.toString().trim()}`);
     });
     psVol.stdout.on("data", (d) => {
       psVolBuf += d.toString();
