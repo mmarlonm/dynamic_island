@@ -11,6 +11,9 @@ const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 let win;
 let currentMeetingApp = "Teams";
+let currentMicState = false;
+let isUserMuted = false;
+let meetingExitCounter = 0;
 function createWindow() {
   console.log("[MAIN] Creating BrowserWindow...");
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -105,9 +108,16 @@ const sendKeyToMeeting = (keys) => {
     }
     
     $search = if ('${currentMeetingApp}' -eq 'Zoom') { 'Zoom Meeting|Zoom' } elseif ('${currentMeetingApp}' -eq 'Meet') { 'Meet - |Google Meet' } else { 'Reunión|Llamada|Meeting|Teams' }
-    $p = Get-Process | Where-Object { $_.MainWindowTitle -match $search -and $_.MainWindowHandle -ne [IntPtr]::Zero } | Sort-Object { $_.MainWindowTitle -match 'Reunión|Llamada|Meeting' } -Descending | Select-Object -First 1;
+    # Strict filter: Must have MainWindowHandle, match title, but NOT be a shell or electron process.
+    $p = Get-Process | Where-Object { 
+        $_.MainWindowHandle -ne [IntPtr]::Zero -and 
+        $_.MainWindowTitle -match $search -and 
+        $_.ProcessName -notmatch 'powershell|node|electron|conhost' -and
+        ($_.ProcessName -match 'Teams|ms-teams|Zoom|chrome|msedge|firefox' -or $_.MainWindowTitle -match 'Zoom Meeting|Google Meet|Reunión de ')
+    } | Sort-Object { $_.MainWindowTitle -match 'Reunión|Llamada|Meeting|Zoom Meeting|Meet - ' } -Descending | Select-Object -First 1;
+
     if (-not $p -and '${currentMeetingApp}' -eq 'Teams') {
-        $p = Get-Process -Name 'ms-teams', 'Teams' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Sort-Object { $_.MainWindowTitle.Length } -Descending | Select-Object -First 1
+        $p = Get-Process -Name 'ms-teams', 'Teams' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero -and $_.ProcessName -notmatch 'powershell|node' } | Sort-Object { $_.MainWindowTitle.Length } -Descending | Select-Object -First 1
     }
     if ($p) {
         Write-Output "__DEBUG__TargetProcess: $($p.ProcessName) | Title: $($p.MainWindowTitle)"
@@ -117,7 +127,7 @@ const sendKeyToMeeting = (keys) => {
         [System.Windows.Forms.SendKeys]::SendWait('${keys}');
         Write-Output "__DEBUG__KeysSent: ${keys}"
     } else {
-        Write-Output "__DEBUG__Error: No Process found for $search"
+        Write-Output "__DEBUG__Error: No Meeting Window found for $search (Current app: ${currentMeetingApp})"
     }
   `;
   console.log(`[MEET] Sending keys '${keys}' to ${currentMeetingApp}...`);
@@ -169,11 +179,12 @@ setInterval(() => {
 }, 2e3);
 let mediaProc = null;
 try {
-  const mediaReaderPath = path.join(__dirname$1, "media-reader.js");
+  let mediaReaderPath = path.join(__dirname$1, "media-reader.js");
   if (!fs.existsSync(mediaReaderPath)) {
-    console.error(`[MAIN] CRITICAL: media-reader.js NOT FOUND at ${mediaReaderPath}`);
-    const fallbackPath = path.join(process.cwd(), "dist-electron", "media-reader.js");
-    console.log(`[MAIN] Trying fallback path: ${fallbackPath}`);
+    mediaReaderPath = path.join(__dirname$1, "..", "electron", "media-reader.mjs");
+    if (!fs.existsSync(mediaReaderPath)) {
+      mediaReaderPath = path.join(process.cwd(), "electron", "media-reader.mjs");
+    }
   }
   console.log(`[MAIN] Forking media reader from: ${mediaReaderPath}`);
   mediaProc = fork(mediaReaderPath, [], {
@@ -224,15 +235,18 @@ try {
       interface IMMDeviceEnumerator { int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices); }
       [Guid("0BD7A1AD-7E6D-4359-8CA7-3C5644E2096F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
       interface IMMDeviceCollection { int GetCount(out int count); int Item(int index, out IMMDevice device); }
+      [Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+      interface IAudioMeterInformation { int GetPeakValue(out float peak); }
       [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDevEnum { }
       public class MicCheck {
-          public static bool IsInUse() {
+          public static int GetStatus() {
               try {
                   var enumerator = (IMMDeviceEnumerator)new MMDevEnum();
                   IMMDeviceCollection devices;
-                  if (enumerator.EnumAudioEndpoints(1, 1, out devices) != 0) return false;
+                  if (enumerator.EnumAudioEndpoints(1, 1, out devices) != 0) return 0;
                   int deviceCount; devices.GetCount(out deviceCount);
                   var iid = new Guid("77AA9910-1EE6-440D-B95F-456477E6E273");
+                  bool sessionFound = false;
                   for (int j = 0; j < deviceCount; j++) {
                       IMMDevice device; 
                       if (devices.Item(j, out device) != 0) continue;
@@ -245,12 +259,18 @@ try {
                           IAudioSessionControl session;
                           if (sessionEnum.GetSession(i, out session) == 0) {
                               int state; session.GetState(out state);
-                              if (state == 1) return true;
+                              if (state == 1) {
+                                  sessionFound = true;
+                                  IAudioMeterInformation meter = (IAudioMeterInformation)session;
+                                  float peak = 0;
+                                  if (meter.GetPeakValue(out peak) == 0 && peak > 0.0001f) return 2; // DEFINITELY ACTIVE (SOUND)
+                              }
                           }
                       }
                   }
+                  return sessionFound ? 1 : 0; // 1 = POTENTIALLY ACTIVE (SESSION)
               } catch {}
-              return false;
+              return 0;
           }
       }
 '@
@@ -262,10 +282,10 @@ try {
       Write-Output "__DEBUG__PS_Script_Started"
       while($true) {
         try {
-          # 1. C# Multi-Role Check (Comprehensive)
-          $micInUse = [MicCheck]::IsInUse()
+          # 1. C# Hybrid Check
+          $micStatus = [MicCheck]::GetStatus()
           
-          # 2. Registry Scan (Primary for non-COM apps)
+          # 2. Registry Scan (Baseline)
           $regMic = $false
           $parents = "HKCU:/Software/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/microphone", 
                      "HKLM:/Software/Microsoft/Windows/CurrentVersion/CapabilityAccessManager/ConsentStore/microphone"
@@ -291,35 +311,48 @@ try {
             }
           }
           
-          # 4. Window Detection
-          $keywords = 'Llamada|Call|Meeting|Reun|Activo|curso|Talk|Join|Unirse|Meet|Vid|Video|Screen|Sharing'
-          $allP = Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.MainWindowTitle -match $keywords) }
+          # 4. Window Detection (Ultra-Strict keywords to avoid Chat/Home windows)
+          $keywords = 'Reunión|Llamada|Meeting|Call|Meet|Reun|curso|Zoom Meeting'
+          $allP = Get-Process | Where-Object { 
+            $_.MainWindowTitle -ne '' -and 
+            ($_.MainWindowTitle -match $keywords) -and 
+            ($_.ProcessName -match 'Teams|Zoom|ms-teams|Meet|Webex|chrome|msedge|firefox') 
+          }
           $found = $null
           $isMeeting = $false
           $titleMuted = $false
           if ($allP) {
             foreach($p in $allP) {
               $t = $p.MainWindowTitle
-              if ($t -match $keywords -and $t -notmatch '^Teams$|^Microsoft Teams$|^Zoom$|^Zoom Cloud Meetings$') {
-                $found = $p; $isMeeting = $true
-                # Only trust title mute if it's very specific to avoid false positives
-                if ($t -match ' (Silenciado)$| (Muted)$| (Desactivado)$| (Mic Off)$') { $titleMuted = $true }
-                break
+              # Filter out chat/home windows explicitly
+              if ($t -match $keywords -and $t -notmatch '^Teams$|^Microsoft Teams$|^Zoom$|^Zoom Cloud Meetings$|^Chat ') {
+                 $found = $p; $isMeeting = $true
+                 # Detect mute state by title suffix
+                 if ($t -match ' (Silenciado)| (Muted)| (Desactivado)| (Mic Off)| (Silenciar)| (Mute)') { $titleMuted = $true }
+                 break
               }
             }
-            if (-not $found) { $found = $allP | Select-Object -First 1 }
-          }
-          if ($micInUse -and $found -and ($found.ProcessName -match 'Teams|Zoom|ms-teams|Meet')) {
-            $isMeeting = $true
+            if (-not $found) { 
+              # Final attempt: grab anything that matched process but be less confident
+              $found = $allP | Select-Object -First 1 
+            }
           }
           
-          $micFinal = ($micInUse -or $regMic)
-          if ($isMeeting -and $titleMuted) {
-             $micFinal = $false
+          # Hybrid Logic: Confidence-based states
+          $micFinal = $false
+          $conf = "Low"
+          if ($micStatus -eq 2) { 
+            $micFinal = $true; $conf = "High" # Sound Peak
+          } elseif ($isMeeting -and $titleMuted) {
+            $micFinal = $false; $conf = "High" # Title Match
+          } elseif ($micStatus -eq 1 -or $regMic) {
+            $micFinal = $true; $conf = "Low" # Active Session
+          } else {
+            $micFinal = $false; $conf = "High" # Definitely inactive
           }
           
           # Diagnostic output
-          Write-Output "__DEBUG__Stats | CS:$micInUse | Reg:$regMic | TitleMute:$titleMuted | App:$($found.ProcessName)"
+          Write-Output "__DEBUG__Stats | Status:$micStatus | Reg:$regMic | TitleMute:$titleMuted | Final:$micFinal | Conf:$conf | Title:$($found.MainWindowTitle)"
           
           $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | 
                 Where-Object { $_.FriendlyName -match 'Bluetooth|Headset|Auricular|Hand-free|Llamada' } | 
@@ -332,7 +365,7 @@ try {
             else { $found.ProcessName } 
           } else { '' }
           
-          Write-Output "__MEET__$([string]$micFinal)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)|$([string]$camInUse)"
+          Write-Output "__MEET__$([string]$micFinal)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)|$([string]$camInUse)|$conf"
         } catch {
           Write-Output "__DEBUG__Loop_Error: $($_.Exception.Message)"
         }
@@ -354,22 +387,41 @@ try {
         }
         if (line.startsWith("__MEET__")) {
           const parts = line.replace("__MEET__", "").split("|");
-          if (parts.length >= 5) {
-            const [micUse, isMeet, app2, btDevice, camUse] = parts;
-            const isActive = micUse.toLowerCase() === "true" || isMeet.toLowerCase() === "true" || camUse.toLowerCase() === "true";
-            if (isActive) {
+          if (parts.length >= 6) {
+            const [micUseStr, isMeetStr, app2, btDevice, camUseStr, conf] = parts;
+            const micUse = micUseStr.toLowerCase() === "true";
+            const isMeetRaw = isMeetStr.toLowerCase() === "true";
+            const camUse = camUseStr.toLowerCase() === "true";
+            const isActuallyActive = isMeetRaw && (micUse || camUse);
+            if (isActuallyActive) {
+              meetingExitCounter = 0;
               if (app2.toLowerCase().includes("zoom")) currentMeetingApp = "Zoom";
               else if (app2.toLowerCase().includes("meet")) currentMeetingApp = "Meet";
               else if (app2.toLowerCase().includes("teams")) currentMeetingApp = "Teams";
               else currentMeetingApp = app2 || "Llamada";
+            } else {
+              meetingExitCounter++;
+            }
+            const isActive = meetingExitCounter < 6;
+            if (!isActive) {
+              isUserMuted = false;
+            }
+            if (conf === "High") {
+              currentMicState = micUse;
+              if (micUse) isUserMuted = false;
+            } else if (!micUse) {
+              currentMicState = false;
+            } else {
+              currentMicState = !isUserMuted;
             }
             if (Date.now() < meetingUpdateSilenceUntil) return;
+            console.log(`[MEET-POLL] Sending Update: Active=${isActive} | App=${app2} | Mic=${currentMicState} | Cam=${camUse} | UserMuted=${isUserMuted} | Conf=${conf}`);
             win == null ? void 0 : win.webContents.send("meeting-update", {
               isActive,
-              app: isActive ? app2 || "Llamada Activa" : "",
+              app: isActuallyActive || isActive ? app2 || "Llamada Activa" : "",
               device: btDevice || "Sistema",
-              micActive: micUse.toLowerCase() === "true",
-              camActive: camUse.toLowerCase() === "true"
+              micActive: currentMicState,
+              camActive: camUse
             });
           }
         }
@@ -492,14 +544,17 @@ try {
   });
   ipcMain.handle("meeting-command", async (_event, cmd) => {
     meetingUpdateSilenceUntil = Date.now() + 8e3;
-    console.log("[MEET-CMD] Action:", cmd, "App:", currentMeetingApp);
+    console.log(`[MEET-CMD] Action: ${cmd} | App: ${currentMeetingApp} | PrevUserMuted: ${isUserMuted}`);
     if (cmd === "toggleMic") {
+      isUserMuted = !isUserMuted;
+      console.log(`[MEET-CMD] NewUserMuted: ${isUserMuted}`);
       const keys = currentMeetingApp === "Zoom" ? "%a" : currentMeetingApp === "Meet" ? "^d" : "^+m";
       await sendKeyToMeeting(keys);
     } else if (cmd === "toggleCam") {
       const keys = currentMeetingApp === "Zoom" ? "%v" : currentMeetingApp === "Meet" ? "^e" : "^+o";
       await sendKeyToMeeting(keys);
     } else if (cmd === "endCall") {
+      isUserMuted = false;
       if (currentMeetingApp === "Zoom") {
         await sendKeyToMeeting("%q");
         setTimeout(() => sendKeyToMeeting("{ENTER}"), 200);
