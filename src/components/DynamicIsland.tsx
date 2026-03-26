@@ -56,7 +56,6 @@ const TimerBubble = ({ time, total, isActive, isLightMode }: { time: number; tot
       animate={{ scale: 1, opacity: 1, x: 0 }}
       exit={{ scale: 0, opacity: 0, x: -6 }}
       className="pointer-events-auto select-none"
-      style={{ marginTop: 4 }}
     >
       <div className="relative w-14 h-14 flex items-center justify-center">
         <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 56 56">
@@ -93,7 +92,6 @@ const NotifBubble = ({ count, onClick }: { count: number; onClick: () => void })
     animate={{ scale: 1, opacity: 1, x: 0 }}
     exit={{ scale: 0, opacity: 0, x: -6 }}
     className="pointer-events-auto select-none cursor-pointer"
-    style={{ marginTop: 4, marginLeft: 6 }}
     onClick={onClick}
   >
     <div className="relative w-14 h-14 flex items-center justify-center">
@@ -130,8 +128,7 @@ const CallBubble = ({ app, micMuted, onClick }: { app: string; micMuted: boolean
         width: isHovered ? 160 : 56,
       }}
       exit={{ scale: 0, opacity: 0, x: 20 }}
-      className="absolute right-full mr-4 pointer-events-auto select-none cursor-pointer h-14 bg-black/70 backdrop-blur-3xl rounded-[24px] flex items-center justify-center overflow-hidden border border-white/10 shadow-2xl"
-      style={{ top: 4 }}
+      className="pointer-events-auto select-none cursor-pointer h-14 bg-black/70 backdrop-blur-3xl rounded-[24px] flex items-center justify-center overflow-hidden border border-white/10 shadow-2xl"
       onClick={!isHovered ? onClick : undefined}
     >
       <AnimatePresence mode="wait">
@@ -459,28 +456,37 @@ export const DynamicIsland = () => {
 
   return (
     <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999]">
-      
-      {/* ── Island body ── */}
-      <motion.div
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => { if (!isPinned && !showSettings) setIsHovered(false); }}
-        className="relative pointer-events-auto"
-        style={{
-          overflow: 'visible',
-          color: isLightMode ? '#111' : '#fff',
-        }}
-        animate={{
-          width: showSettings ? 720 : isExpanded ? 680 : 360,
-          height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : 66,
-        }}
-        transition={{ type: 'spring', stiffness: 220, damping: 26 }}
-      >
-        {/* Call Bubble (Absolute Left of body) */}
+      <div className="relative flex items-start justify-center">
+
+        {/* Call Bubble — Left side, outside hover zone */}
         <AnimatePresence>
           {meeting.isActive && !isExpanded && (
-            <CallBubble key="call" app={meeting.app} micMuted={meeting.micMuted} onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} />
+            <div className="absolute right-full mr-6 top-1 pointer-events-auto translate-y-[-2px]">
+              <CallBubble 
+                key="call" 
+                app={meeting.app} 
+                micMuted={meeting.micMuted} 
+                onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} 
+              />
+            </div>
           )}
         </AnimatePresence>
+
+        {/* ── Island body ── */}
+        <motion.div
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => { if (!isPinned && !showSettings) setIsHovered(false); }}
+          className="relative pointer-events-auto"
+          style={{
+            overflow: 'visible',
+            color: isLightMode ? '#111' : '#fff',
+          }}
+          animate={{
+            width: showSettings ? 720 : isExpanded ? 680 : 360,
+            height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : 66,
+          }}
+          transition={{ type: 'spring', stiffness: 220, damping: 26 }}
+        >
         {/* Wings — pinned inside motion.div so they always track its corners */}
         <svg width={WING_R} height={WING_R} shapeRendering="geometricPrecision" className="absolute top-0 pointer-events-none z-[1]" style={{ left: -WING_R, display: 'block' }}>
           <path d={`M 0 0 H ${WING_R} V ${WING_R} A ${WING_R} ${WING_R} 0 0 0 0 0 Z`} fill={bg} />
@@ -1007,24 +1013,25 @@ export const DynamicIsland = () => {
         </div>{/* end inner content wrapper */}
       </motion.div>
 
-      {/* Timer bubble — flex sibling, sits right of the island edge, coupled to wing */}
-      <AnimatePresence>
-        {showTimerBubble && (
-          <div style={{ marginLeft: 6 }}>
-            <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} isLightMode={isLightMode} />
-          </div>
-        )}
-      </AnimatePresence>
+        <div className="absolute left-full ml-6 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]">
+          {/* Timer bubble */}
+          <AnimatePresence>
+            {showTimerBubble && (
+              <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} isLightMode={isLightMode} />
+            )}
+          </AnimatePresence>
 
-      {/* Notification bubble — appears when collapsed and there are unread notifications */}
-      <AnimatePresence>
-        {showNotifBubble && (
-          <NotifBubble
-            count={notifications.length}
-            onClick={() => { setIsHovered(true); setActiveView('Notificación'); (window as any).ipcRenderer?.send('set-ignore-mouse-events', false); }}
-          />
-        )}
-      </AnimatePresence>
+          {/* Notification bubble */}
+          <AnimatePresence>
+            {showNotifBubble && (
+              <NotifBubble
+                count={notifications.length}
+                onClick={() => { setIsHovered(true); setActiveView('Notificación'); (window as any).ipcRenderer?.send('set-ignore-mouse-events', false); }}
+              />
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
     </div>
   );
 };

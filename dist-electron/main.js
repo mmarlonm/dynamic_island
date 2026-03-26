@@ -251,9 +251,10 @@ try {
            foreach ($r in $regs) { if(Test-Path $r) { if((Get-ChildItem $r -Recurse | Get-ItemProperty -Name "LastUsedTimeStop" -ErrorAction SilentlyContinue | Where-Object { $_.LastUsedTimeStop -eq 0 }).Count -gt 0) { $micInUse = $true; break } } }
         }
         $found = Get-Process | Where-Object { $_.MainWindowTitle -match "Teams|Zoom|Meet|Llamada|Call|Reunión|Webex|Discord|Slack|Skype|WhatsApp|Telegram" -or $_.ProcessName -match "Teams|Zoom|ms-teams|Webex|vMix|Discord|Slack|Skype" } | Select-Object -First 1
+        $isMeeting = if($found){ ($found.MainWindowTitle -match 'Llamada|Call|Meeting|Reunión|Reunion|Activo|En curso|Talk|Join|Unirse') -or ($found.MainWindowTitle.Length -gt 25) } else { $false }
         $bt = Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK' -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Bluetooth' } | Select-Object -First 1
         $appName = if($found){ if($found.MainWindowTitle -match 'Teams' -or $found.ProcessName -match 'Teams'){ 'Teams' } elseif($found.MainWindowTitle -match 'Zoom' -or $found.ProcessName -match 'Zoom'){ 'Zoom' } elseif($found.MainWindowTitle -match 'Meet'){ 'Meet' } else { $found.ProcessName } } else { '' }
-        Write-Output "__MEET__$([string]$micInUse)|$($appName)|$($bt.FriendlyName)"
+        Write-Output "__MEET__$([string]$micInUse)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)"
         Start-Sleep -Seconds 2
       }
     `;
@@ -267,9 +268,10 @@ try {
         psMeetBuf = psMeetBuf.slice(nl + 1);
         if (line.startsWith("__MEET__")) {
           const parts = line.replace("__MEET__", "").split("|");
-          if (parts.length >= 3) {
-            const [micUse, app2, btDevice] = parts;
-            const isActive = micUse.toLowerCase() === "true";
+          if (parts.length >= 4) {
+            const [micUse, isMeeting, app2, btDevice] = parts;
+            const isActive = micUse.toLowerCase() === "true" || isMeeting.toLowerCase() === "true";
+            console.log(`[MEET-STATUS] mic:${micUse} meet:${isMeeting} app:${app2} isActive:${isActive}`);
             if (isActive) {
               if (app2.toLowerCase().includes("zoom")) currentMeetingApp = "Zoom";
               else if (app2.toLowerCase().includes("meet")) currentMeetingApp = "Meet";
