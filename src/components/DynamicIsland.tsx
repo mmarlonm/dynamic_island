@@ -43,15 +43,15 @@ const TimerBubble = ({ time, total, isActive }: { time: number; total: number; i
   const r = 22, circ = 2 * Math.PI * r;
   return (
     <motion.div
-      initial={{ scale: 0, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      exit={{ scale: 0, opacity: 0 }}
-      className="fixed top-2 pointer-events-none select-none z-[998]"
-      style={{ right: 'calc(50% - 220px)' }}
+      initial={{ scale: 0, opacity: 0, x: -6 }}
+      animate={{ scale: 1, opacity: 1, x: 0 }}
+      exit={{ scale: 0, opacity: 0, x: -6 }}
+      className="pointer-events-auto select-none"
+      style={{ marginTop: 4 }}
     >
       <div className="relative w-14 h-14 flex items-center justify-center">
         <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 56 56">
-          <circle cx="28" cy="28" r={r} strokeWidth="3" fill="rgba(0,0,0,0.85)" stroke="rgba(255,255,255,0.08)" />
+          <circle cx="28" cy="28" r={r} strokeWidth="3" fill="rgba(0,0,0,0.88)" stroke="rgba(255,255,255,0.08)" />
           <motion.circle
             cx="28" cy="28" r={r} strokeWidth="3" fill="transparent"
             stroke="#3b82f6"
@@ -186,16 +186,9 @@ export const DynamicIsland = () => {
   const showTimerBubble = timerTime > 0 && !isExpanded;
 
   return (
-    <div className="fixed top-0 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none select-none z-[999]">
+    <div className="fixed top-0 left-1/2 -translate-x-1/2 flex flex-row items-start pointer-events-none select-none z-[999]">
 
-      {/* ── Floating timer bubble (pill mode) ── */}
-      <AnimatePresence>
-        {showTimerBubble && (
-          <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} />
-        )}
-      </AnimatePresence>
-
-      {/* ── Island body — overflow:visible so wings extend outside, content div is overflow:hidden ── */}
+      {/* ── Island body ── */}
       <motion.div
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => { if (!isPinned && !showSettings) setIsHovered(false); }}
@@ -673,6 +666,15 @@ export const DynamicIsland = () => {
         </AnimatePresence>
         </div>{/* end inner content wrapper */}
       </motion.div>
+
+      {/* Timer bubble — flex sibling, sits right of the island edge, coupled to wing */}
+      <AnimatePresence>
+        {showTimerBubble && (
+          <div style={{ marginLeft: 6 }}>
+            <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} />
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
