@@ -20,6 +20,7 @@ let audioOutputDevice: 'Speaker' | 'Headphones' = 'Speaker'
 let lastWifi = true, lastBt = true
 let currentMicState = false
 let isUserMuted = false
+let isUserCamOff = false;  // Track manual camera toggle
 let meetingExitCounter = 0 // Debounce meeting exit
 
 function createWindow() {
@@ -409,7 +410,7 @@ try {
             else { $found.ProcessName } 
           } else { '' }
           
-          Write-Output "__MEET__$([string]$micFinal)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)|$([string]$camInUse)|$conf"
+          Write-Output "__MEET__$([string]$micFinal)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)|$([string]$camInUse)|$conf|$([string]$titleMuted)"
         } catch {
           Write-Output "__DEBUG__Loop_Error: $($_.Exception.Message)"
         }
@@ -430,10 +431,11 @@ try {
         if (line.startsWith('__MEET__')) {
             const parts = line.replace('__MEET__', '').split('|');
             if (parts.length >= 6) {
-              const [micUseStr, isMeetStr, app, btDevice, camUseStr, conf] = parts;
+              const [micUseStr, isMeetStr, app, btDevice, camUseStr, conf, titleMutedStr] = parts;
               const micUse = micUseStr.toLowerCase() === 'true';
               const isMeetRaw = isMeetStr.toLowerCase() === 'true';
               const camUse = camUseStr.toLowerCase() === 'true';
+              const titleMuted = (titleMutedStr ?? '').toLowerCase() === 'true';
               
               const isActuallyActive = isMeetRaw && (micUse || camUse);
               
@@ -451,32 +453,51 @@ try {
               const isActive = meetingExitCounter < 6;
               
               if (!isActive) {
-                 isUserMuted = false; // Finally reset when meeting is definitely over
+                 isUserMuted = false;    // Reset when meeting is definitely over
+                 isUserCamOff = false;   // Reset camera override too
               }
 
-              // Advanced Logic: High confidence (SoundPeak or Title) clears or sets states
-              if (conf === 'High') {
-                currentMicState = micUse;
-                if (micUse) isUserMuted = false; // Sound clears manual mute
-              } else if (!micUse) {
+              // ── Mic state logic ──────────────────────────────────────────
+              // Priority:
+              //   1. Sound peak (micUse=true, High)  → ACTIVE; clear flag
+              //   2. Title says muted                → MUTED; set flag
+              //   3. High conf + no activity at all  → MUTED; sync flag to reality
+              //      (catches mute done from within the meeting app)
+              //   4. Low conf (session found, silent) → trust the flag
+              if (micUse && conf === 'High') {
+                // Real audio peak → definitely unmuted; undo any manual override
+                currentMicState = true;
+                isUserMuted = false;
+              } else if (titleMuted) {
+                // App title explicitly says muted
                 currentMicState = false;
-                // Don't reset isUserMuted here, wait for isActive=false
+                isUserMuted = true;
+              } else if (!micUse && conf === 'High') {
+                // No session, no sound, no title — definitively inactive.
+                // Sync the flag so external mutes are respected.
+                currentMicState = false;
+                isUserMuted = true;
               } else {
-                // Low Confidence (Session Active but silent)
-                // Use isUserMuted flag to decide
+                // Low confidence (session active but silent) — trust the flag.
+                // This preserves island-side toggles during normal speech gaps.
                 currentMicState = !isUserMuted;
               }
-              
+
+              // ── Camera state logic ───────────────────────────────────────
+              // If the user manually toggled camera off, respect that until
+              // meeting ends or they explicitly toggle back on.
+              const camFinal = isUserCamOff ? false : camUse;
+
               if (Date.now() < meetingUpdateSilenceUntil) return;
 
-              console.log(`[MEET-POLL] Sending Update: Active=${isActive} | App=${app} | Mic=${currentMicState} | Cam=${camUse} | UserMuted=${isUserMuted} | Conf=${conf}`);
+              console.log(`[MEET-POLL] Sending Update: Active=${isActive} | App=${app} | Mic=${currentMicState} | Cam=${camFinal} | UserMuted=${isUserMuted} | UserCamOff=${isUserCamOff} | Conf=${conf}`);
 
               win?.webContents.send('meeting-update', {
                 isActive,
                 app: (isActuallyActive || isActive) ? (app || 'Llamada Activa') : '', 
                 device: btDevice || 'Sistema',
                 micActive: currentMicState,
-                camActive: camUse
+                camActive: camFinal
               });
             }
         }
@@ -612,13 +633,18 @@ try {
     if (cmd === 'toggleMic') {
        isUserMuted = !isUserMuted;
        console.log(`[MEET-CMD] NewUserMuted: ${isUserMuted}`);
+       currentMicState = !isUserMuted;
        const keys = currentMeetingApp === 'Zoom' ? '%a' : (currentMeetingApp === 'Meet' ? '^d' : '^+m');
        await sendKeyToMeeting(keys);
     } else if (cmd === 'toggleCam') {
+       isUserCamOff = !isUserCamOff;
+       console.log(`[MEET-CMD] NewUserCamOff: ${isUserCamOff}`);
        const keys = currentMeetingApp === 'Zoom' ? '%v' : (currentMeetingApp === 'Meet' ? '^e' : '^+o');
        await sendKeyToMeeting(keys);
     } else if (cmd === 'endCall') {
        isUserMuted = false;
+       isUserCamOff = false;
+       currentMicState = false;
        if (currentMeetingApp === 'Zoom') { await sendKeyToMeeting('%q'); setTimeout(() => sendKeyToMeeting('{ENTER}'), 200); }
        else if (currentMeetingApp === 'Meet') await sendKeyToMeeting('^w');
        else await sendKeyToMeeting('^+h');

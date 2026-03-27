@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
-  EyeOff, BellOff, Timer, RotateCcw, Video, Mic, MicOff, Phone, PhoneOff
+  EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -136,7 +136,7 @@ const CallBubble = ({ app, micActive, camActive, onClick, onCommand, onEndCall }
           <motion.div 
             key="icon" 
             initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
-            className={clsx("flex flex-col items-center leading-none", (micActive || camActive) ? "text-green-500" : "text-zinc-500")}
+          className={clsx("flex flex-col items-center leading-none", (micActive || camActive) ? "text-green-500" : "text-zinc-500")}
           >
              {micActive ? <Mic className="w-4 h-4" /> : (camActive ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />)}
              <span className="text-[6px] font-black uppercase mt-1 tracking-tighter w-10 truncate text-center">{app}</span>
@@ -157,7 +157,7 @@ const CallBubble = ({ app, micActive, camActive, onClick, onCommand, onEndCall }
               onClick={(e) => { e.stopPropagation(); onCommand('toggleCam'); }} 
               className={clsx(btnClass, camActive ? "text-green-400" : "text-white opacity-40")}
             >
-              <Video className="w-4 h-4" />
+              {camActive ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); onCommand('endCall'); onEndCall(); }} 
@@ -835,7 +835,7 @@ export const DynamicIsland = () => {
                       meeting.camActive ? "bg-green-500 text-white border-green-400" : "bg-white/10 border-white/20 hover:bg-white/20"
                     )}
                   >
-                    <Video className="w-7 h-7" />
+                    {meeting.camActive ? <Video className="w-7 h-7" /> : <VideoOff className="w-7 h-7" />}
                   </button>
                   <button 
                     onClick={() => handleMeetingCommand('endCall')}

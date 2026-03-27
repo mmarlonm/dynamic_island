@@ -13,6 +13,7 @@ let win;
 let currentMeetingApp = "Teams";
 let currentMicState = false;
 let isUserMuted = false;
+let isUserCamOff = false;
 let meetingExitCounter = 0;
 function createWindow() {
   console.log("[MAIN] Creating BrowserWindow...");
@@ -365,7 +366,7 @@ try {
             else { $found.ProcessName } 
           } else { '' }
           
-          Write-Output "__MEET__$([string]$micFinal)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)|$([string]$camInUse)|$conf"
+          Write-Output "__MEET__$([string]$micFinal)|$([string]$isMeeting)|$($appName)|$($bt.FriendlyName)|$([string]$camInUse)|$conf|$([string]$titleMuted)"
         } catch {
           Write-Output "__DEBUG__Loop_Error: $($_.Exception.Message)"
         }
@@ -388,10 +389,11 @@ try {
         if (line.startsWith("__MEET__")) {
           const parts = line.replace("__MEET__", "").split("|");
           if (parts.length >= 6) {
-            const [micUseStr, isMeetStr, app2, btDevice, camUseStr, conf] = parts;
+            const [micUseStr, isMeetStr, app2, btDevice, camUseStr, conf, titleMutedStr] = parts;
             const micUse = micUseStr.toLowerCase() === "true";
             const isMeetRaw = isMeetStr.toLowerCase() === "true";
             const camUse = camUseStr.toLowerCase() === "true";
+            const titleMuted = (titleMutedStr ?? "").toLowerCase() === "true";
             const isActuallyActive = isMeetRaw && (micUse || camUse);
             if (isActuallyActive) {
               meetingExitCounter = 0;
@@ -405,23 +407,29 @@ try {
             const isActive = meetingExitCounter < 6;
             if (!isActive) {
               isUserMuted = false;
+              isUserCamOff = false;
             }
-            if (conf === "High") {
-              currentMicState = micUse;
-              if (micUse) isUserMuted = false;
-            } else if (!micUse) {
+            if (micUse && conf === "High") {
+              currentMicState = true;
+              isUserMuted = false;
+            } else if (titleMuted) {
               currentMicState = false;
+              isUserMuted = true;
+            } else if (!micUse && conf === "High") {
+              currentMicState = false;
+              isUserMuted = true;
             } else {
               currentMicState = !isUserMuted;
             }
+            const camFinal = isUserCamOff ? false : camUse;
             if (Date.now() < meetingUpdateSilenceUntil) return;
-            console.log(`[MEET-POLL] Sending Update: Active=${isActive} | App=${app2} | Mic=${currentMicState} | Cam=${camUse} | UserMuted=${isUserMuted} | Conf=${conf}`);
+            console.log(`[MEET-POLL] Sending Update: Active=${isActive} | App=${app2} | Mic=${currentMicState} | Cam=${camFinal} | UserMuted=${isUserMuted} | UserCamOff=${isUserCamOff} | Conf=${conf}`);
             win == null ? void 0 : win.webContents.send("meeting-update", {
               isActive,
               app: isActuallyActive || isActive ? app2 || "Llamada Activa" : "",
               device: btDevice || "Sistema",
               micActive: currentMicState,
-              camActive: camUse
+              camActive: camFinal
             });
           }
         }
@@ -548,13 +556,18 @@ try {
     if (cmd === "toggleMic") {
       isUserMuted = !isUserMuted;
       console.log(`[MEET-CMD] NewUserMuted: ${isUserMuted}`);
+      currentMicState = !isUserMuted;
       const keys = currentMeetingApp === "Zoom" ? "%a" : currentMeetingApp === "Meet" ? "^d" : "^+m";
       await sendKeyToMeeting(keys);
     } else if (cmd === "toggleCam") {
+      isUserCamOff = !isUserCamOff;
+      console.log(`[MEET-CMD] NewUserCamOff: ${isUserCamOff}`);
       const keys = currentMeetingApp === "Zoom" ? "%v" : currentMeetingApp === "Meet" ? "^e" : "^+o";
       await sendKeyToMeeting(keys);
     } else if (cmd === "endCall") {
       isUserMuted = false;
+      isUserCamOff = false;
+      currentMicState = false;
       if (currentMeetingApp === "Zoom") {
         await sendKeyToMeeting("%q");
         setTimeout(() => sendKeyToMeeting("{ENTER}"), 200);
