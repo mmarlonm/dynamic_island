@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
@@ -318,6 +318,7 @@ export const DynamicIsland = () => {
   const isHoveredRef    = useRef(false);
   const [islandX, setIslandX] = useState(0); // Offset from center
   const islandXRef = useRef(0);
+  const dragControls = useDragControls();
   useEffect(() => { isPinnedRef.current = isPinned; }, [isPinned]);
   useEffect(() => { showSettingsRef.current = showSettings; }, [showSettings]);
   useEffect(() => { isHoveredRef.current = isHovered; }, [isHovered]);
@@ -474,6 +475,8 @@ export const DynamicIsland = () => {
         {/* ── Island body ── */}
         <motion.div
           drag="x"
+          dragControls={dragControls}
+          dragListener={false}
           dragConstraints={{ left: -1000, right: 1000 }}
           dragElastic={0.05}
           dragMomentum={false}
@@ -537,6 +540,7 @@ export const DynamicIsland = () => {
         <motion.div
           animate={{ opacity: isExpanded ? 0 : 1 }}
           className={clsx('absolute inset-0 flex items-center px-4', isExpanded && 'pointer-events-none')}
+          onPointerDown={(e) => !isExpanded && dragControls.start(e)}
         >
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-3">
@@ -575,10 +579,17 @@ export const DynamicIsland = () => {
         <motion.div
           animate={{ opacity: isExpanded && !showSettings ? 1 : 0 }}
           className={clsx('absolute inset-0 flex flex-col pt-2.5 px-4 pb-2', (!isExpanded || showSettings) && 'pointer-events-none')}
+          onPointerDown={(e) => {
+             // Only start drag if clicking the background, not a button or control
+             const target = e.target as HTMLElement;
+             if (target.tagName !== 'BUTTON' && target.tagName !== 'INPUT' && !target.closest('.no-drag')) {
+               dragControls.start(e);
+             }
+          }}
         >
           {/* Tab bar */}
           <div className={clsx('flex items-center justify-between mb-2 pb-2 border-b shrink-0 z-50', isLightMode ? 'border-black/5' : 'border-white/5')}>
-            <div className="flex gap-1 items-center overflow-x-auto no-scrollbar max-w-[80%]">
+            <div className="flex gap-1 items-center overflow-x-auto no-scrollbar max-w-[80%]" onPointerDown={(e) => e.stopPropagation()}>
               {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas'] as const).map(v =>
                 visibleTabs.includes(v) && (
                   <button
@@ -772,7 +783,10 @@ export const DynamicIsland = () => {
                   </div>
                 </div>
                 {/* Right: volume slider column */}
-                <div className="flex flex-col items-center justify-center px-4 gap-2" style={{ minWidth: 70 }}>
+                <div 
+                  className="flex flex-col items-center justify-center px-4 gap-2 no-drag" 
+                  style={{ minWidth: 70 }} 
+                >
                   <Volume2 className="w-4 h-4" style={{ opacity: 0.35 }} />
                   <input type="range" min={0} max={100} value={volume}
                     onChange={e => setVol(Number(e.target.value))}
@@ -864,21 +878,23 @@ export const DynamicIsland = () => {
                 <div className="relative w-[450px] h-[450px] flex items-center justify-center">
                   
                   {/* Unified Triple Timer System */}
-                  <UnifiedCircularTimer 
-                    hours={timerActive ? (timerTime / 3600) : timerHours}
-                    mins={timerActive ? ((timerTime % 3600) / 60) : timerMins}
-                    secs={timerActive ? (timerTime % 60) : timerSecs}
-                    onChange={(type, val) => {
-                      if (type === 'h') setTimerHours(val);
-                      else if (type === 'm') setTimerMins(val);
-                      else setTimerSecs(val);
-                    }}
-                    disabled={timerActive}
-                    isLightMode={isLightMode}
-                  />
+                  <div className="no-drag">
+                    <UnifiedCircularTimer 
+                      hours={timerActive ? (timerTime / 3600) : timerHours}
+                      mins={timerActive ? ((timerTime % 3600) / 60) : timerMins}
+                      secs={timerActive ? (timerTime % 60) : timerSecs}
+                      onChange={(type, val) => {
+                        if (type === 'h') setTimerHours(val);
+                        else if (type === 'm') setTimerMins(val);
+                        else setTimerSecs(val);
+                      }}
+                      disabled={timerActive}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
 
                   {/* Center Controls — inside a smaller safe zone */}
-                  <div className="absolute z-30 flex flex-col items-center pointer-events-auto">
+                  <div className="absolute z-30 flex flex-col items-center pointer-events-auto" onPointerDown={(e) => e.stopPropagation()}>
                     <div className="flex flex-col items-center mb-1">
                       <span className="text-[22px] font-black tabular-nums tracking-tighter leading-none">
                         {fmtTime(timerTime || (timerHours * 3600 + timerMins * 60 + timerSecs))}
@@ -923,6 +939,7 @@ export const DynamicIsland = () => {
               animate={{ opacity: 1,  scale: 1,    y: 0   }}
               exit={{   opacity: 0,  scale: 0.97,  y: -8  }}
               className="absolute inset-0 flex flex-col overflow-hidden"
+              onPointerDown={(e) => e.stopPropagation()}
               style={{
                 background: isLightMode ? 'rgba(252,252,252,0.97)' : 'rgba(8,8,8,0.97)',
                 backdropFilter: 'blur(40px)',
