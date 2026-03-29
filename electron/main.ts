@@ -90,7 +90,7 @@ function createWindow() {
     isExpandedMode = expanded;
   });
 
-  let currentIslandX = width / 2;
+  let currentIslandX = 0;
   ipcMain.on('update-island-pos', (event, x) => {
     currentIslandX = x;
   });
@@ -100,17 +100,27 @@ function createWindow() {
     const { x, y } = screen.getCursorScreenPoint();
     const b = win.getBounds();
 
-    // Calculate relative to window center top
-    const relX = x - (b.x + b.width / 2);
+    // Calculate relative to the CURRENT island center (center + offset)
+    const islandCenterX = b.x + b.width / 2 + currentIslandX;
+    const relX = x - islandCenterX;
     const relY = y - b.y;
     const [winW, winH] = win.getSize();
     
-    // Narrow body proximity for collapsed mode
-    const isOverIsland = Math.abs(relX) <= (isExpandedMode ? 400 : 185);
-    // Bubble zone on the left (approx range -360 to -185)
-    const isOverBubble = (!isExpandedMode && relX >= -360 && relX <= -180);
+    // Body proximity: matched to actual component widths
+    // Collapsed: 360 (180 radius), Expanded: 680 (340 radius)
+    const islandRadius = isExpandedMode ? 350 : 180; 
+    const isOverIsland = Math.abs(relX) <= islandRadius;
     
-    const heightLimit = isExpandedMode ? winH + 40 : 50; 
+    // Bubble zones move with the island
+    // Left bubble (Call): Starts at -220px (180 center + 40 margin) up to -380px (if expanded to 160px)
+    // Right bubbles (Timer/Notif): Starts at 204px (180 center + 24 margin) up to ~260px (56px width)
+    const isOverBubble = (!isExpandedMode && (
+      (relX >= -380 && relX <= -220) || // Left bubble (Call)
+      (relX >= 200 && relX <= 270)      // Right bubbles (Timer/Notif)
+    ));
+    
+    // Height limit: collapsed is exactly 66px. Bubbles are 56px.
+    const heightLimit = isExpandedMode ? winH - 10 : 66; 
 
     const isInside = (isOverIsland || isOverBubble) && relY >= 0 && relY <= heightLimit;
 

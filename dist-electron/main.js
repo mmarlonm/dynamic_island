@@ -66,18 +66,23 @@ function createWindow() {
   ipcMain.on("set-is-expanded", (event, expanded) => {
     isExpandedMode = expanded;
   });
+  let currentIslandX = 0;
   ipcMain.on("update-island-pos", (event, x) => {
+    currentIslandX = x;
   });
   setInterval(() => {
     if (!win || win.isDestroyed()) return;
     const { x, y } = screen.getCursorScreenPoint();
     const b = win.getBounds();
-    const relX = x - (b.x + b.width / 2);
+    const islandCenterX = b.x + b.width / 2 + currentIslandX;
+    const relX = x - islandCenterX;
     const relY = y - b.y;
     const [winW, winH] = win.getSize();
-    const isOverIsland = Math.abs(relX) <= (isExpandedMode ? 400 : 185);
-    const isOverBubble = !isExpandedMode && relX >= -360 && relX <= -180;
-    const heightLimit = isExpandedMode ? winH + 40 : 50;
+    const islandRadius = isExpandedMode ? 350 : 180;
+    const isOverIsland = Math.abs(relX) <= islandRadius;
+    const isOverBubble = !isExpandedMode && (relX >= -380 && relX <= -220 || // Left bubble (Call)
+    relX >= 200 && relX <= 270);
+    const heightLimit = isExpandedMode ? winH - 10 : 66;
     const isInside = (isOverIsland || isOverBubble) && relY >= 0 && relY <= heightLimit;
     win.setIgnoreMouseEvents(!isInside, { forward: true });
     win.webContents.send("mouse-proximity", { isNear: isInside, relX, relY });

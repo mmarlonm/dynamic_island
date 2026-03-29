@@ -316,9 +316,12 @@ export const DynamicIsland = () => {
   const showSettingsRef = useRef(false);
   const setIsHoveredRef = useRef(setIsHovered);
   const isHoveredRef    = useRef(false);
+  const [islandX, setIslandX] = useState(0); // Offset from center
+  const islandXRef = useRef(0);
   useEffect(() => { isPinnedRef.current = isPinned; }, [isPinned]);
   useEffect(() => { showSettingsRef.current = showSettings; }, [showSettings]);
   useEffect(() => { isHoveredRef.current = isHovered; }, [isHovered]);
+  useEffect(() => { islandXRef.current = islandX; }, [islandX]);
 
   const T: Record<string, any> = {
     es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar' },
@@ -345,9 +348,9 @@ export const DynamicIsland = () => {
       ipc.on('mouse-proximity', (_: any, d: any) => {
         const near = typeof d === 'object' ? d.isNear : d;
         if (near) {
-          // If NOT expanded, ignore proximity triggers if they are in the bubble zone (relX < -185)
+          // If NOT expanded, ignore proximity triggers if they are in the bubble zones (relX > 180 or relX < -180)
           // This prevents the bubble hover from expanding the main island body.
-          if (!isHoveredRef.current && !isPinnedRef.current && d.relX < -185) return;
+          if (!isHoveredRef.current && !isPinnedRef.current && Math.abs(d.relX) > 180) return;
 
           if (hoverTimeoutRef.current || isHoveredRef.current) return;
           hoverTimeoutRef.current = setTimeout(() => {
@@ -468,32 +471,24 @@ export const DynamicIsland = () => {
   return (
     <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999]">
       <div className="relative flex items-start justify-center">
-
-        {/* Call Bubble — Left side, outside hover zone */}
-        <AnimatePresence>
-          {meeting.isActive && !isExpanded && (
-            <div className="absolute right-full mr-10 top-1 pointer-events-auto translate-y-[-2px]">
-              <CallBubble 
-                key="call" 
-                app={meeting.app} 
-                micActive={meeting.micActive} 
-                camActive={meeting.camActive}
-                onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} 
-                onCommand={handleMeetingCommand}
-                onEndCall={() => setMeeting(m => ({ ...m, isActive: false }))}
-              />
-            </div>
-          )}
-        </AnimatePresence>
-
         {/* ── Island body ── */}
         <motion.div
+          drag="x"
+          dragConstraints={{ left: -1000, right: 1000 }}
+          dragElastic={0.05}
+          dragMomentum={false}
+          onDrag={(_, info) => {
+            const newX = islandXRef.current + info.delta.x;
+            setIslandX(newX);
+            (window as any).ipcRenderer?.send('update-island-pos', newX);
+          }}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => { if (!isPinned && !showSettings) setIsHovered(false); }}
-          className="relative pointer-events-auto"
+          className="relative pointer-events-auto cursor-grab active:cursor-grabbing"
           style={{
             overflow: 'visible',
             color: isLightMode ? '#111' : '#fff',
+            x: islandX, 
           }}
           animate={{
             width: showSettings ? 720 : isExpanded ? 680 : 360,
@@ -501,6 +496,22 @@ export const DynamicIsland = () => {
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
         >
+          {/* Call Bubble — Left side, outside hover zone */}
+          <AnimatePresence>
+            {meeting.isActive && !isExpanded && (
+              <div className="absolute right-full mr-10 top-1 pointer-events-auto translate-y-[-2px]">
+                <CallBubble 
+                  key="call" 
+                  app={meeting.app} 
+                  micActive={meeting.micActive} 
+                  camActive={meeting.camActive}
+                  onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} 
+                  onCommand={handleMeetingCommand}
+                  onEndCall={() => setMeeting(m => ({ ...m, isActive: false }))}
+                />
+              </div>
+            )}
+          </AnimatePresence>
         {/* Wings — pinned inside motion.div so they always track its corners */}
         <svg width={WING_R} height={WING_R} shapeRendering="geometricPrecision" className="absolute top-0 pointer-events-none z-[1]" style={{ left: -WING_R, display: 'block' }}>
           <path d={`M 0 0 H ${WING_R} V ${WING_R} A ${WING_R} ${WING_R} 0 0 0 0 0 Z`} fill={bg} />
@@ -1026,28 +1037,28 @@ export const DynamicIsland = () => {
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
-        </div>{/* end inner content wrapper */}
-      </motion.div>
-
-        <div className="absolute left-full ml-6 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]">
-          {/* Timer bubble */}
-          <AnimatePresence>
-            {showTimerBubble && (
-              <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} isLightMode={isLightMode} />
-            )}
-          </AnimatePresence>
-
-          {/* Notification bubble */}
-          <AnimatePresence>
-            {showNotifBubble && (
-              <NotifBubble
-                count={notifications.length}
-                onClick={() => { setIsHovered(true); setActiveView('Notificación'); (window as any).ipcRenderer?.send('set-ignore-mouse-events', false); }}
-              />
-            )}
           </AnimatePresence>
         </div>
+
+        <div className="absolute left-full ml-6 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]">
+            {/* Timer bubble */}
+            <AnimatePresence>
+              {showTimerBubble && (
+                <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} isLightMode={isLightMode} />
+              )}
+            </AnimatePresence>
+
+            {/* Notification bubble */}
+            <AnimatePresence>
+              {showNotifBubble && (
+                <NotifBubble
+                  count={notifications.length}
+                  onClick={() => { setIsHovered(true); setActiveView('Notificación'); (window as any).ipcRenderer?.send('set-ignore-mouse-events', false); }}
+                />
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
       </div>
     </div>
   );
