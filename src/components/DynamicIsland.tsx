@@ -437,7 +437,8 @@ export const DynamicIsland = () => {
     // Robust expansion report: true ONLY if actually expanded (hovered/pinned)
     const effectivelyExpanded = isExpanded || showSettings;
     ipc.send('set-is-expanded', !!effectivelyExpanded);
-  }, [isExpanded, showSettings, activeView]);
+    ipc.send('set-is-super-pill', superPill && !effectivelyExpanded);
+  }, [isExpanded, showSettings, activeView, superPill]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const handleMeetingCommand = (cmd: string) => {
@@ -496,7 +497,7 @@ export const DynamicIsland = () => {
             x: islandX, 
           }}
           animate={{
-            width: showSettings ? 720 : isExpanded ? 680 : (superPill ? 80 : 360),
+            width: showSettings ? 720 : isExpanded ? 680 : (superPill ? 64 : 360),
             height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : 66,
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
@@ -550,14 +551,14 @@ export const DynamicIsland = () => {
                 const mode = superPillMode === 'Auto' ? (media.isPlaying ? 'Multimedia' : 'Clima') : superPillMode;
                 if (mode === 'Multimedia') {
                   return (
-                    <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="w-11 h-11 rounded-full overflow-hidden border-2 border-white/10 bg-zinc-900 relative shadow-2xl">
-                      {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 m-auto opacity-10" />}
+                    <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/10 bg-zinc-900 relative shadow-2xl">
+                      {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-4 h-4 m-auto opacity-10" />}
                     </motion.div>
                   );
                 } else {
                   return (
-                    <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-500/10 border border-blue-500/20 shadow-lg">
-                      <Cloud className="w-6 h-6 text-blue-400" />
+                    <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/20 shadow-lg">
+                      <Cloud className="w-5 h-5 text-blue-400" />
                     </motion.div>
                   );
                 }

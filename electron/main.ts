@@ -84,8 +84,12 @@ function createWindow() {
   });
 
   let currentIslandX = 0;
+  let isSuperPill = false;
   ipcMain.on('update-island-pos', (event, x) => {
     currentIslandX = x;
+  });
+  ipcMain.on('set-is-super-pill', (event, active) => {
+    isSuperPill = active;
   });
 
   setInterval(() => {
@@ -100,14 +104,14 @@ function createWindow() {
     const [winW, winH] = win.getSize();
     
     // Body proximity: matched to actual component widths
-    // Collapsed: 360 (180 radius), Expanded: 680 (340 radius)
-    const islandRadius = isExpandedMode ? 350 : 180; 
+    // Collapsed: 360 (180 radius), Expanded: 680 (340 radius), SuperPill: 64 (32 radius)
+    const islandRadius = isExpandedMode ? 350 : (isSuperPill ? 40 : 180); 
     const isOverIsland = Math.abs(relX) <= islandRadius;
     
     // Bubble zones move with the island
     // Left bubble (Call): Starts at -220px (180 center + 40 margin) up to -380px (if expanded to 160px)
     // Right bubbles (Timer/Notif): Starts at 204px (180 center + 24 margin) up to ~260px (56px width)
-    const isOverBubble = (!isExpandedMode && (
+    const isOverBubble = (!isExpandedMode && !isSuperPill && (
       (relX >= -380 && relX <= -220) || // Left bubble (Call)
       (relX >= 200 && relX <= 270)      // Right bubbles (Timer/Notif)
     ));

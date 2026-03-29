@@ -59,8 +59,12 @@ function createWindow() {
     isExpandedMode = expanded;
   });
   let currentIslandX = 0;
+  let isSuperPill = false;
   ipcMain.on("update-island-pos", (event, x) => {
     currentIslandX = x;
+  });
+  ipcMain.on("set-is-super-pill", (event, active) => {
+    isSuperPill = active;
   });
   setInterval(() => {
     if (!win || win.isDestroyed()) return;
@@ -70,9 +74,9 @@ function createWindow() {
     const relX = x - islandCenterX;
     const relY = y - b.y;
     const [winW, winH] = win.getSize();
-    const islandRadius = isExpandedMode ? 350 : 180;
+    const islandRadius = isExpandedMode ? 350 : isSuperPill ? 40 : 180;
     const isOverIsland = Math.abs(relX) <= islandRadius;
-    const isOverBubble = !isExpandedMode && (relX >= -380 && relX <= -220 || // Left bubble (Call)
+    const isOverBubble = !isExpandedMode && !isSuperPill && (relX >= -380 && relX <= -220 || // Left bubble (Call)
     relX >= 200 && relX <= 270);
     const heightLimit = isExpandedMode ? winH - 10 : 66;
     const isInside = (isOverIsland || isOverBubble) && relY >= 0 && relY <= heightLimit;
