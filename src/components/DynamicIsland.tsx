@@ -498,7 +498,7 @@ export const DynamicIsland = () => {
           }}
           animate={{
             width: showSettings ? 720 : isExpanded ? 680 : (superPill ? 64 : 360),
-            height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : 66,
+            height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 48 : 66),
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
         >

@@ -116,8 +116,8 @@ function createWindow() {
       (relX >= 200 && relX <= 270)      // Right bubbles (Timer/Notif)
     ));
     
-    // Height limit: collapsed is exactly 66px. Bubbles are 56px.
-    const heightLimit = isExpandedMode ? winH - 10 : 66; 
+    // Height limit: collapsed is exactly 66px. Bubbles are 56px. SuperPill is 48px.
+    const heightLimit = isExpandedMode ? winH - 10 : (isSuperPill ? 48 : 66); 
 
     const isInside = (isOverIsland || isOverBubble) && relY >= 0 && relY <= heightLimit;
 

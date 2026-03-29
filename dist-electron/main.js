@@ -78,7 +78,7 @@ function createWindow() {
     const isOverIsland = Math.abs(relX) <= islandRadius;
     const isOverBubble = !isExpandedMode && !isSuperPill && (relX >= -380 && relX <= -220 || // Left bubble (Call)
     relX >= 200 && relX <= 270);
-    const heightLimit = isExpandedMode ? winH - 10 : 66;
+    const heightLimit = isExpandedMode ? winH - 10 : isSuperPill ? 48 : 66;
     const isInside = (isOverIsland || isOverBubble) && relY >= 0 && relY <= heightLimit;
     win.setIgnoreMouseEvents(!isInside, { forward: true });
     win.webContents.send("mouse-proximity", { isNear: isInside, relX, relY });
