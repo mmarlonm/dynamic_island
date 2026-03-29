@@ -4,7 +4,6 @@ import { fileURLToPath } from "url";
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 const require$1 = createRequire(import.meta.url);
 const nativePath = path.resolve(__dirname$1, "../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node");
-console.log("[CHILD] Media reader process starting...");
 let NowPlayingModule;
 try {
   try {
@@ -34,7 +33,6 @@ try {
     }
   });
   np.subscribe().catch((err) => {
-    console.warn("[CHILD] SUBSCRIBE_ERROR", err);
   });
   process.on("message", async (cmd) => {
     try {
@@ -42,11 +40,9 @@ try {
       if (cmd === "next") await np.nextTrack();
       if (cmd === "prev") await np.previousTrack();
     } catch (e) {
-      console.error("[CHILD] Media Command Error:", e);
     }
   });
 } catch (e) {
-  console.error("[CHILD] FATAL_MEDIA_ERROR:", e);
 }
 setInterval(() => {
 }, 1e3);

@@ -401,7 +401,7 @@ export const DynamicIsland = () => {
         o.start(ctx.currentTime + s); o.stop(ctx.currentTime + s + 0.3);
       };
       playTone(880, 0); playTone(880, 0.3); playTone(1100, 0.6);
-    } catch (e) { console.error('Alarm failed', e); }
+    } catch (e) { }
   };
 
   const startTimer = () => {
@@ -496,7 +496,7 @@ export const DynamicIsland = () => {
             x: islandX, 
           }}
           animate={{
-            width: showSettings ? 720 : isExpanded ? 680 : (superPill ? 220 : 360),
+            width: showSettings ? 720 : isExpanded ? 680 : (superPill ? 80 : 360),
             height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : 66,
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
@@ -545,33 +545,20 @@ export const DynamicIsland = () => {
           onPointerDown={(e) => !isExpanded && dragControls.start(e)}
         >
           {superPill ? (
-            <div className="flex items-center justify-between w-full px-2" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-center w-full h-full" onPointerDown={(e) => e.stopPropagation()}>
               {(() => {
                 const mode = superPillMode === 'Auto' ? (media.isPlaying ? 'Multimedia' : 'Clima') : superPillMode;
                 if (mode === 'Multimedia') {
                   return (
-                    <div className="flex items-center gap-3 w-full">
-                       <div className="w-9 h-9 rounded-xl overflow-hidden border border-white/5 bg-zinc-900 relative shrink-0 shadow-lg">
-                        {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 m-auto opacity-10" />}
-                      </div>
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-[11px] font-black truncate tracking-tight text-left">{media.isPlaying ? media.title : 'Reproducción'}</span>
-                        <div className="flex items-center gap-2"><SoundVisualizer isPlaying={media.isPlaying} /></div>
-                      </div>
-                    </div>
+                    <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="w-11 h-11 rounded-full overflow-hidden border-2 border-white/10 bg-zinc-900 relative shadow-2xl">
+                      {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 m-auto opacity-10" />}
+                    </motion.div>
                   );
                 } else {
                   return (
-                    <div className="flex items-center justify-between w-full">
-                       <div className="flex items-center gap-2 py-0.5 px-2 rounded-full border text-[11px] font-black bg-white/5 border-white/10">
-                        <Cloud className="w-3 h-3 text-blue-400" />
-                        <span className="tracking-tight">{weather.temp}°</span>
-                      </div>
-                      <div className="flex flex-col items-end">
-                         <span className="text-[11px] font-black tabular-nums">{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
-                         <span className="text-[6px] uppercase font-black opacity-30">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
-                      </div>
-                    </div>
+                    <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-500/10 border border-blue-500/20 shadow-lg">
+                      <Cloud className="w-6 h-6 text-blue-400" />
+                    </motion.div>
                   );
                 }
               })()}

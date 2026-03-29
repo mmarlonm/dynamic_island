@@ -56,14 +56,10 @@ function createWindow() {
   }
 
   win.webContents.on('did-finish-load', () => {
-    console.log('[MAIN] Window content loaded successfully.');
     win?.show();
     win?.focus();
   });
 
-  win.webContents.on('did-fail-load', (e, code, desc) => {
-    console.error(`[MAIN] Failed to load window: ${desc} (${code})`);
-  });
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore) => {
     if (win && !win.isDestroyed()) {
@@ -128,7 +124,6 @@ function createWindow() {
 
 const singleInstanceLock = app.requestSingleInstanceLock()
 if (!singleInstanceLock) {
-  console.log('[MAIN] Single instance lock failed. Closing new instance...');
   app.quit()
 } else {
   app.on('second-instance', () => {
@@ -139,7 +134,6 @@ if (!singleInstanceLock) {
   })
 
   app.whenReady().then(() => {
-    console.log('[MAIN] App ready, creating window...');
     createWindow();
   });
 }
@@ -176,7 +170,6 @@ const sendKeyToMeeting = (keys: string) => {
         Write-Output "__DEBUG__Error: No Meeting Window found for $search (Current app: ${currentMeetingApp})"
     }
   `;
-  console.log(`[MEET] Sending keys '${keys}' to ${currentMeetingApp}...`);
   return new Promise((resolve) => {
     const ps = spawn('powershell', ['-Command', psKey]);
     ps.stdout!.on('data', (d: Buffer) => { });
@@ -237,7 +230,6 @@ try {
        mediaReaderPath = path.join(process.cwd(), 'electron', 'media-reader.mjs');
     }
   }
-  console.log(`[MAIN] Forking media reader from: ${mediaReaderPath}`);
 
   mediaProc = fork(mediaReaderPath, [], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -265,7 +257,6 @@ try {
 
   const startMeetPS = () => {
     try { exec('taskkill /F /IM powershell.exe /FI "WINDOWTITLE eq notchly-meet.ps1*"'); } catch(e){}
-    console.log('[MEET] Starting persistent meeting detection loop...');
     const psPath = path.join(os.tmpdir(), 'notchly-meet.ps1');
     const psCode = `
       $ErrorActionPreference = 'Continue'
@@ -432,7 +423,7 @@ try {
       while ((nl = psMeetBuf.indexOf('\n')) !== -1) {
         const line = psMeetBuf.slice(0, nl).trim();
         psMeetBuf = psMeetBuf.slice(nl + 1);
-        if (line.startsWith('__DEBUG__')) { console.log('[MEET-DEBUG]', line); continue; }
+        if (line.startsWith('__DEBUG__')) { continue; }
         if (line.startsWith('__MEET__')) {
             const parts = line.replace('__MEET__', '').split('|');
             if (parts.length >= 6) {
@@ -622,7 +613,7 @@ try {
   });
 
   app.on('before-quit', () => { mediaProc?.kill(); psMeet?.kill(); });
-} catch (err) { console.error('[MAIN] CRITICAL Initialization error:', err); }
+} catch (err) { }
 
 app.on('window-all-closed', () => {
   win = null;
