@@ -310,6 +310,8 @@ export const DynamicIsland = () => {
   const volDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Selected calendar day
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [superPill, setSuperPill] = useState(false);
+  const [superPillMode, setSuperPillMode] = useState<'Auto' | 'Multimedia' | 'Clima'>('Auto');
 
   // Refs to avoid stale closure in IPC listener
   const isPinnedRef    = useRef(false);
@@ -494,7 +496,7 @@ export const DynamicIsland = () => {
             x: islandX, 
           }}
           animate={{
-            width: showSettings ? 720 : isExpanded ? 680 : 360,
+            width: showSettings ? 720 : isExpanded ? 680 : (superPill ? 220 : 360),
             height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : 66,
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
@@ -542,37 +544,63 @@ export const DynamicIsland = () => {
           className={clsx('absolute inset-0 flex items-center px-4', isExpanded && 'pointer-events-none')}
           onPointerDown={(e) => !isExpanded && dragControls.start(e)}
         >
-          <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl overflow-hidden border border-white/5 bg-zinc-900 relative shrink-0 shadow-lg">
-                {media.thumbnail
-                  ? <img src={media.thumbnail} className="w-full h-full object-cover" />
-                  : <Music className="w-5 h-5 m-auto opacity-10" />}
-                <div className="absolute -bottom-0.5 -right-0.5 bg-[#fc3c44] w-4 h-4 rounded-full flex items-center justify-center border-2 border-black">
-                  <Music className="w-2 h-2 text-white" />
+          {superPill ? (
+            <div className="flex items-center justify-between w-full px-2" onPointerDown={(e) => e.stopPropagation()}>
+              {(() => {
+                const mode = superPillMode === 'Auto' ? (media.isPlaying ? 'Multimedia' : 'Clima') : superPillMode;
+                if (mode === 'Multimedia') {
+                  return (
+                    <div className="flex items-center gap-3 w-full">
+                       <div className="w-9 h-9 rounded-xl overflow-hidden border border-white/5 bg-zinc-900 relative shrink-0 shadow-lg">
+                        {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 m-auto opacity-10" />}
+                      </div>
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-[11px] font-black truncate tracking-tight text-left">{media.isPlaying ? media.title : 'Reproducción'}</span>
+                        <div className="flex items-center gap-2"><SoundVisualizer isPlaying={media.isPlaying} /></div>
+                      </div>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className="flex items-center justify-between w-full">
+                       <div className="flex items-center gap-2 py-0.5 px-2 rounded-full border text-[11px] font-black bg-white/5 border-white/10">
+                        <Cloud className="w-3 h-3 text-blue-400" />
+                        <span className="tracking-tight">{weather.temp}°</span>
+                      </div>
+                      <div className="flex flex-col items-end">
+                         <span className="text-[11px] font-black tabular-nums">{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                         <span className="text-[6px] uppercase font-black opacity-30">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
+                      </div>
+                    </div>
+                  );
+                }
+              })()}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl overflow-hidden border border-white/5 bg-zinc-900 relative shrink-0 shadow-lg">
+                  {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 m-auto opacity-10" />}
+                  <div className="absolute -bottom-0.5 -right-0.5 bg-[#fc3c44] w-4 h-4 rounded-full flex items-center justify-center border-2 border-black"><Music className="w-2 h-2 text-white" /></div>
+                </div>
+                <div className="flex flex-col min-w-0 max-w-[130px]">
+                  <span className="text-[12px] font-black truncate tracking-tight text-left">{media.isPlaying ? media.title : t.resumen}</span>
+                  <span className="text-[9px] font-bold truncate uppercase text-left" style={{ opacity: 0.35 }}>{media.isPlaying ? media.artist : 'Sin Actividad'}</span>
                 </div>
               </div>
-              <div className="flex flex-col min-w-0 max-w-[130px]">
-                <span className="text-[12px] font-black truncate tracking-tight text-left">
-                  {media.isPlaying ? media.title : t.resumen}
-                </span>
-                <span className="text-[9px] font-bold truncate uppercase text-left" style={{ opacity: 0.35 }}>
-                  {media.isPlaying ? media.artist : 'Sin Actividad'}
-                </span>
+              <div className="flex items-center gap-3">
+                <SoundVisualizer isPlaying={media.isPlaying} />
+                <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
+                  <Cloud className="w-3 h-3 text-blue-400" />
+                  <span className="tracking-tight">{weather.temp}°</span>
+                </div>
+                <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter" style={{ opacity: 0.35 }}>
+                  <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                  <span className="text-[7px] uppercase font-mono">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <SoundVisualizer isPlaying={media.isPlaying} />
-              <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
-                <Cloud className="w-3 h-3 text-blue-400" />
-                <span className="tracking-tight">{weather.temp}°</span>
-              </div>
-              <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter" style={{ opacity: 0.35 }}>
-                <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
-                <span className="text-[7px] uppercase font-mono">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
-              </div>
-            </div>
-          </div>
+          )}
         </motion.div>
 
         {/* ── EXPANDED PANEL ── */}
@@ -1004,8 +1032,42 @@ export const DynamicIsland = () => {
                   </div>
                 </div>
 
-                {/* Col 3: Theme + Language */}
-                <div className="flex flex-col gap-6 p-8">
+                {/* Col 3: Theme + Language + SuperPill */}
+                <div className="flex-1 flex flex-col gap-5 p-8">
+                  <div className="flex flex-col gap-3">
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Minimalismo</span>
+                    <button
+                      onClick={() => setSuperPill(p => !p)}
+                      className="flex items-center justify-between px-4 py-3 rounded-2xl border transition-all font-black text-[11px] uppercase pointer-events-auto"
+                      style={{
+                        background: superPill ? (isLightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)') : 'transparent',
+                        borderColor: superPill ? (isLightMode ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)') : (isLightMode ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+                        color: superPill ? '#60a5fa' : 'inherit',
+                      }}
+                    >
+                      <span>Super Minimizar</span>
+                      <div className={clsx('w-8 h-4 rounded-full relative transition-all', superPill ? 'bg-blue-500' : 'bg-zinc-700')}>
+                        <div className={clsx('absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all', superPill ? (isLightMode ? 'left-4' : 'left-4.5') : 'left-0.5')} />
+                      </div>
+                    </button>
+                    {superPill && (
+                      <div className="flex gap-1.5 mt-1 no-drag pointer-events-auto">
+                        {(['Auto', 'Multimedia', 'Clima'] as const).map(m => (
+                          <button key={m} onClick={() => setSuperPillMode(m)} className="flex-1 py-2 rounded-xl border font-black text-[8px] uppercase tracking-tighter"
+                            style={{
+                              background: superPillMode === m ? 'rgba(59,130,246,0.2)' : 'transparent',
+                              borderColor: superPillMode === m ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.05)',
+                              color: superPillMode === m ? '#60a5fa' : 'inherit',
+                              opacity: superPillMode === m ? 1 : 0.4
+                            }}
+                          >
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex flex-col gap-3">
                     <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.theme}</span>
                     <button

@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import { fork, exec, spawn } from "node:child_process";
 import os from "node:os";
-console.log("[MAIN] Electron process starting...");
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
@@ -16,7 +15,6 @@ let isUserMuted = false;
 let isUserCamOff = false;
 let meetingExitCounter = 0;
 function createWindow() {
-  console.log("[MAIN] Creating BrowserWindow...");
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.bounds;
   const windowWidth = width;
@@ -38,10 +36,8 @@ function createWindow() {
   });
   win.setIgnoreMouseEvents(true, { forward: true });
   if (VITE_DEV_SERVER_URL) {
-    console.log("[MAIN] Loading from Vite Dev Server:", VITE_DEV_SERVER_URL);
     win.loadURL(VITE_DEV_SERVER_URL);
   } else {
-    console.log("[MAIN] Loading from packaged dist...");
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
   win.webContents.on("did-finish-load", () => {
@@ -139,8 +135,10 @@ const sendKeyToMeeting = (keys) => {
   console.log(`[MEET] Sending keys '${keys}' to ${currentMeetingApp}...`);
   return new Promise((resolve) => {
     const ps = spawn("powershell", ["-Command", psKey]);
-    ps.stdout.on("data", (d) => console.log("[MEET-CMD-LOG]", d.toString().trim()));
-    ps.stderr.on("data", (d) => console.error("[MEET-CMD-ERR]", d.toString().trim()));
+    ps.stdout.on("data", (d) => {
+    });
+    ps.stderr.on("data", (d) => {
+    });
     ps.on("close", () => resolve(true));
   });
 };
@@ -200,10 +198,10 @@ try {
   let lastMediaMsg = null;
   if (mediaProc) {
     if (mediaProc.stdout) {
-      mediaProc.stdout.on("data", (d) => console.log(`[MEDIA-CHILD STDOUT] ${d.toString().trim()}`));
-    }
-    if (mediaProc.stderr) {
-      mediaProc.stderr.on("data", (d) => console.error(`[MEDIA-CHILD ERROR] ${d.toString().trim()}`));
+      mediaProc.stdout.on("data", (d) => {
+      });
+      mediaProc.stderr.on("data", (d) => {
+      });
     }
     mediaProc.on("message", (msg) => {
       if ((msg == null ? void 0 : msg.type) === "MEDIA_UPDATE") {
@@ -428,7 +426,6 @@ try {
             }
             const camFinal = isUserCamOff ? false : camUse;
             if (Date.now() < meetingUpdateSilenceUntil) return;
-            console.log(`[MEET-POLL] Sending Update: Active=${isActive} | App=${app2} | Mic=${currentMicState} | Cam=${camFinal} | UserMuted=${isUserMuted} | UserCamOff=${isUserCamOff} | Conf=${conf}`);
             win == null ? void 0 : win.webContents.send("meeting-update", {
               isActive,
               app: isActuallyActive || isActive ? app2 || "Llamada Activa" : "",
@@ -440,7 +437,8 @@ try {
         }
       }
     });
-    psMeet.stderr.on("data", (d) => console.error("[MEET-PS ERROR]", d.toString()));
+    psMeet.stderr.on("data", (d) => {
+    });
     psMeet.on("exit", () => setTimeout(startMeetPS, 5e3));
   };
   setTimeout(startMeetPS, 3e3);
@@ -467,9 +465,9 @@ try {
     });
   }, 3e3);
   ipcMain.handle("get-current-media", async () => {
-    if (lastMediaMsg) return lastMediaMsg.data;
+    if (lastMediaMsg) return lastMediaMsg;
     await new Promise((r) => setTimeout(r, 1200));
-    return (lastMediaMsg == null ? void 0 : lastMediaMsg.data) || null;
+    return lastMediaMsg || null;
   });
   ipcMain.handle("toggle-wifi", async () => {
     exec(`powershell -Command "if((Get-NetAdapter -Name 'Wi-Fi').Status -eq 'Up') { Disable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false } else { Enable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false }"`);
@@ -524,16 +522,13 @@ try {
   });
   ipcMain.handle("meeting-command", async (_event, cmd) => {
     meetingUpdateSilenceUntil = Date.now() + 8e3;
-    console.log(`[MEET-CMD] Action: ${cmd} | App: ${currentMeetingApp} | PrevUserMuted: ${isUserMuted}`);
     if (cmd === "toggleMic") {
       isUserMuted = !isUserMuted;
-      console.log(`[MEET-CMD] NewUserMuted: ${isUserMuted}`);
       currentMicState = !isUserMuted;
       const keys = currentMeetingApp === "Zoom" ? "%a" : currentMeetingApp === "Meet" ? "^d" : "^+m";
       await sendKeyToMeeting(keys);
     } else if (cmd === "toggleCam") {
       isUserCamOff = !isUserCamOff;
-      console.log(`[MEET-CMD] NewUserCamOff: ${isUserCamOff}`);
       const keys = currentMeetingApp === "Zoom" ? "%v" : currentMeetingApp === "Meet" ? "^e" : "^+o";
       await sendKeyToMeeting(keys);
     } else if (cmd === "endCall") {

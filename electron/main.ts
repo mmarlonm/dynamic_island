@@ -1,4 +1,4 @@
-console.log('[MAIN] Electron process starting...');
+
 import { app, BrowserWindow, screen, ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +24,6 @@ let isUserCamOff = false;  // Track manual camera toggle
 let meetingExitCounter = 0 // Debounce meeting exit
 
 function createWindow() {
-  console.log('[MAIN] Creating BrowserWindow...');
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width, height } = primaryDisplay.bounds
   const windowWidth = width
@@ -50,11 +49,9 @@ function createWindow() {
   win.setIgnoreMouseEvents(true, { forward: true })
 
   if (VITE_DEV_SERVER_URL) {
-    console.log('[MAIN] Loading from Vite Dev Server:', VITE_DEV_SERVER_URL);
     win.loadURL(VITE_DEV_SERVER_URL)
     // win.webContents.openDevTools({ mode: 'detach' }) // Optional: uncomment if needed
   } else {
-    console.log('[MAIN] Loading from packaged dist...');
     win.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
 
@@ -182,8 +179,8 @@ const sendKeyToMeeting = (keys: string) => {
   console.log(`[MEET] Sending keys '${keys}' to ${currentMeetingApp}...`);
   return new Promise((resolve) => {
     const ps = spawn('powershell', ['-Command', psKey]);
-    ps.stdout!.on('data', (d: Buffer) => console.log('[MEET-CMD-LOG]', d.toString().trim()));
-    ps.stderr!.on('data', (d: Buffer) => console.error('[MEET-CMD-ERR]', d.toString().trim()));
+    ps.stdout!.on('data', (d: Buffer) => { });
+    ps.stderr!.on('data', (d: Buffer) => { });
     ps.on('close', () => resolve(true));
   });
 };
@@ -250,10 +247,8 @@ try {
   let lastMediaMsg: any = null;
   if (mediaProc) {
     if (mediaProc.stdout) {
-      mediaProc.stdout.on('data', (d: Buffer) => console.log(`[MEDIA-CHILD STDOUT] ${d.toString().trim()}`));
-    }
-    if (mediaProc.stderr) {
-      mediaProc.stderr.on('data', (d: Buffer) => console.error(`[MEDIA-CHILD ERROR] ${d.toString().trim()}`));
+      mediaProc.stdout.on('data', (d: Buffer) => { });
+      mediaProc.stderr.on('data', (d: Buffer) => { });
     }
 
     mediaProc.on('message', (msg: any) => {
@@ -500,7 +495,6 @@ try {
 
               if (Date.now() < meetingUpdateSilenceUntil) return;
 
-              console.log(`[MEET-POLL] Sending Update: Active=${isActive} | App=${app} | Mic=${currentMicState} | Cam=${camFinal} | UserMuted=${isUserMuted} | UserCamOff=${isUserCamOff} | Conf=${conf}`);
 
               win?.webContents.send('meeting-update', {
                 isActive,
@@ -513,7 +507,7 @@ try {
         }
       }
     });
-    psMeet.stderr.on('data', (d: Buffer) => console.error('[MEET-PS ERROR]', d.toString()));
+    psMeet.stderr.on('data', (d: Buffer) => { });
     psMeet.on('exit', () => setTimeout(startMeetPS, 5000));
   };
   setTimeout(startMeetPS, 3000);
@@ -543,9 +537,9 @@ try {
   }, 3000);
 
   ipcMain.handle('get-current-media', async () => {
-    if (lastMediaMsg) return lastMediaMsg.data;
+    if (lastMediaMsg) return lastMediaMsg;
     await new Promise(r => setTimeout(r, 1200));
-    return lastMediaMsg?.data || null;
+    return lastMediaMsg || null;
   });
 
   ipcMain.handle('toggle-wifi', async () => {
@@ -608,16 +602,13 @@ try {
 
   ipcMain.handle('meeting-command', async (_event, cmd: string) => {
     meetingUpdateSilenceUntil = Date.now() + 8000;
-    console.log(`[MEET-CMD] Action: ${cmd} | App: ${currentMeetingApp} | PrevUserMuted: ${isUserMuted}`);
     if (cmd === 'toggleMic') {
        isUserMuted = !isUserMuted;
-       console.log(`[MEET-CMD] NewUserMuted: ${isUserMuted}`);
        currentMicState = !isUserMuted;
        const keys = currentMeetingApp === 'Zoom' ? '%a' : (currentMeetingApp === 'Meet' ? '^d' : '^+m');
        await sendKeyToMeeting(keys);
     } else if (cmd === 'toggleCam') {
        isUserCamOff = !isUserCamOff;
-       console.log(`[MEET-CMD] NewUserCamOff: ${isUserCamOff}`);
        const keys = currentMeetingApp === 'Zoom' ? '%v' : (currentMeetingApp === 'Meet' ? '^e' : '^+o');
        await sendKeyToMeeting(keys);
     } else if (cmd === 'endCall') {
