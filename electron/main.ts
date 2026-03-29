@@ -560,73 +560,42 @@ try {
 
   ipcMain.handle('media-command', (_event, action) => mediaProc?.send(action));
 
-  // ── Volume control ──────────────────────────────────────────────────────────
-  let psVol: ReturnType<typeof spawn> | null = null;
-  let psVolReady = false;
-  let psVolBuf = '';
-  let psVolQueue: Array<(v: number | null) => void> = [];
-
-  const volCS = [
-    'Add-Type -TypeDefinition @"',
-    'using System.Runtime.InteropServices;',
-    '[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-    'interface IVol { int f1(); int f2(); int f3(); int f4(); int SetMasterVolumeLevelScalar(float f, System.Guid g); int GetMasterVolumeLevelScalar(out float f); }',
-    '[Guid("D6660639-8874-4034-AD23-37284F510F4F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-    'interface IDev { int Activate(ref System.Guid id, int cls, System.IntPtr p, out IVol v); }',
-    '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-    'interface IEnum { int GetDefaultAudioEndpoint(int df, int r, out IDev e); }',
-    '[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDev { }',
-    'public class WinVol {',
-    '    public static int Get() {',
-    '        try { var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(0, 0, out d); IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A"); d.Activate(ref iid, 23, System.IntPtr.Zero, out v); float f; v.GetMasterVolumeLevelScalar(out f); return (int)(f * 100); } catch { return 0; }',
-    '    }',
-    '    public static void Set(int n) {',
-    '        try { var e = (IEnum)new MMDev(); IDev d; e.GetDefaultAudioEndpoint(0, 0, out d); IVol v; var iid = new System.Guid("5CDF2C82-841E-4546-9722-0CF74078229A"); d.Activate(ref iid, 23, System.IntPtr.Zero, out v); v.SetMasterVolumeLevelScalar((float)n / 100, System.Guid.Empty); } catch {}',
-    '    }',
-    '}',
-    '"@ -Language CSharp',
-    'Write-Output __VOL_READY__'
-  ].join('\n');
-
-  const startVolPS = () => {
-    psVol = spawn('powershell', ['-NoExit', '-NonInteractive', '-Command', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
-    psVol.stdout!.on('data', (d: Buffer) => {
-      psVolBuf += d.toString();
-      let nl: number;
-      while ((nl = psVolBuf.indexOf('\n')) !== -1) {
-        const line = psVolBuf.slice(0, nl).trim();
-        psVolBuf = psVolBuf.slice(nl + 1);
-        if (line === '__VOL_READY__') { psVolReady = true; psVol!.stdin!.write('[WinVol]::Get()\n'); }
-        else if (/^\d+$/.test(line)) {
-          const v = parseInt(line, 10);
-          const cb = psVolQueue.shift();
-          if (cb) cb(v);
-          win?.webContents.send('volume-update', v);
-        }
-      }
+  // ── Volume control (High Performance Native C#) ──────────────────────────
+  const volExe = path.join(__dirname, '..', 'volume.exe');
+  
+  const getVol = (): Promise<number> => new Promise(res => {
+    exec(`"${volExe}" get`, (err, stdout) => {
+      if (err) return res(-1);
+      const v = parseInt(stdout.trim(), 10);
+      res(isNaN(v) ? -1 : v);
     });
-    psVol.stdin!.write(volCS + '\n');
-    psVol.on('exit', () => { psVolReady = false; setTimeout(startVolPS, 5000); });
-  };
-  startVolPS();
-
-  const getVol = (): Promise<number | null> => new Promise(res => {
-    if (!psVolReady || !psVol) return res(null);
-    psVolQueue.push(res);
-    psVol.stdin!.write('[WinVol]::Get()\n');
   });
+
+  let isSettingVolume = false;
+  let lastVolumeToSet: number | null = null;
+  const setVol = async (v: number) => {
+    lastVolumeToSet = v;
+    if (isSettingVolume) return;
+    isSettingVolume = true;
+    while (lastVolumeToSet !== null) {
+      const target = lastVolumeToSet;
+      lastVolumeToSet = null;
+      await new Promise(res => {
+        exec(`"${volExe}" set ${Math.round(target)}`, () => res(null));
+      });
+    }
+    isSettingVolume = false;
+  };
 
   ipcMain.handle('get-volume', async () => await getVol());
-  ipcMain.handle('set-volume', (_e, v: number) => { 
-    const clamped = Math.round(Math.max(0, Math.min(100, v)));
-    psVol?.stdin!.write(`[WinVol]::Set(${clamped})\n`);
-    return true; 
-  });
+  ipcMain.handle('set-volume', (_e, v: number) => { setVol(v); return true; });
 
-  setInterval(async () => {
+  const pollVol = async () => {
     const v = await getVol();
-    if (v !== null) win?.webContents.send('volume-update', v);
-  }, 4000);
+    if (v >= 0) win?.webContents.send('volume-update', v);
+    setTimeout(pollVol, 1000); // Polling every 1s
+  };
+  pollVol();
 
   ipcMain.handle('open-app', async (_event, appName: string) => {
     const lower = appName.toLowerCase();
@@ -661,7 +630,7 @@ try {
     }
   });
 
-  app.on('before-quit', () => { mediaProc?.kill(); psMeet?.kill(); psVol?.kill(); });
+  app.on('before-quit', () => { mediaProc?.kill(); psMeet?.kill(); });
 } catch (err) { console.error('[MAIN] CRITICAL Initialization error:', err); }
 
 app.on('window-all-closed', () => {
