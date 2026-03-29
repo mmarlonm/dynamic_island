@@ -466,7 +466,6 @@ export const DynamicIsland = () => {
   };
 
   // Wing/body colors must match exactly for seamless look
-  const bg       = isLightMode ? 'rgba(248,248,248,0.94)' : 'rgba(10,10,10,0.92)';
   const WING_R   = 34;
   const monthName = currentTime.toLocaleString(lang === 'zh' ? 'zh-CN' : lang, { month: 'short' });
   const showTimerBubble = timerTime > 0 && !isExpanded;
@@ -494,11 +493,11 @@ export const DynamicIsland = () => {
           style={{
             overflow: 'visible',
             color: isLightMode ? '#111' : '#fff',
-            x: islandX, 
+            x: islandX,
           }}
           animate={{
-            width: showSettings ? 720 : isExpanded ? 680 : (superPill ? 64 : 360),
-            height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 48 : 66),
+            width: (showSettings ? 720 : isExpanded ? 680 : (superPill ? 72 : 360)) + 68,
+            height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 42 : 66),
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
         >
@@ -518,31 +517,64 @@ export const DynamicIsland = () => {
               </div>
             )}
           </AnimatePresence>
-        {/* Wings — pinned inside motion.div so they always track its corners */}
-        <svg width={WING_R} height={WING_R} shapeRendering="geometricPrecision" className="absolute top-0 pointer-events-none z-[1]" style={{ left: -WING_R, display: 'block' }}>
-          <path d={`M 0 0 H ${WING_R} V ${WING_R} A ${WING_R} ${WING_R} 0 0 0 0 0 Z`} fill={bg} />
-        </svg>
-        <svg width={WING_R} height={WING_R} shapeRendering="geometricPrecision" className="absolute top-0 pointer-events-none z-[1]" style={{ right: -WING_R, display: 'block' }}>
-          <path d={`M ${WING_R} 0 H 0 V ${WING_R} A ${WING_R} ${WING_R} 0 0 1 ${WING_R} 0 Z`} fill={bg} />
-        </svg>
+        {/* UNIFIED BACKGROUND SVG LAYER — Production Fix & Subtle Drop */}
+        <div className="absolute inset-0 pointer-events-none z-[-1] overflow-visible" 
+             style={{ filter: isLightMode ? 'drop-shadow(0 20px 40px rgba(0,0,0,0.12))' : 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }}>
+          <svg width="100%" height="100%" shapeRendering="geometricPrecision" style={{ display: 'block' }}>
+            <motion.path
+               d={(() => {
+                 const isLarge = showSettings || isExpanded;
+                 const w = (showSettings ? 720 : isExpanded ? 680 : (superPill ? 72 : 360));
+                 const h = showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 42 : 66);
+                 const totalW = w + 68;
+                 
+                 if (superPill && !isLarge) {
+                   // SUBTLE DROP — Only when NOT expanded
+                   const neck = 42; 
+                   return `M 0 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW} 0 Z`;
+                 } else {
+                   // STANDARD PILL — Restoration of 34px Arcs
+                   const r = 34;
+                   return `M 0 0 A ${r} ${r} 0 0 1 ${r} ${r} V ${h-r} A ${r} ${r} 0 0 0 ${r*2} ${h} H ${totalW-(r*2)} A ${r} ${r} 0 0 0 ${totalW-r} ${h-r} V ${r} A ${r} ${r} 0 0 1 ${totalW} 0 Z`;
+                 }
+               })()}
+               animate={{ d: (() => {
+                 const isLarge = showSettings || isExpanded;
+                 const w = (showSettings ? 720 : isExpanded ? 680 : (superPill ? 72 : 360));
+                 const h = showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 42 : 66);
+                 const totalW = w + 68;
+                 
+                 if (superPill && !isLarge) {
+                   const neck = 42; 
+                   return `M 0 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW} 0 Z`;
+                 } else {
+                   const r = 34;
+                   return `M 0 0 A ${r} ${r} 0 0 1 ${r} ${r} V ${h-r} A ${r} ${r} 0 0 0 ${r*2} ${h} H ${totalW-(r*2)} A ${r} ${r} 0 0 0 ${totalW-r} ${h-r} V ${r} A ${r} ${r} 0 0 1 ${totalW} 0 Z`;
+                 }
+               })() }}
+               fill={isLightMode ? '#fdfdfd' : '#0a0a0a'}
+               stroke={isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.08)'}
+               strokeWidth="0.5"
+               transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+            />
+          </svg>
+          <div className="absolute inset-0 z-[-2] rounded-[34px]" style={{ backdropFilter: 'blur(80px)', background: 'transparent' }} />
+        </div>
 
-        {/* Inner content wrapper — clips content, NO side borders so wings are seamless */}
-        <div className="absolute inset-0 overflow-hidden" style={{
-          background: bg,
-          borderBottom: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}`,
-          borderTop: 'none',
-          borderLeft: 'none',
-          borderRight: 'none',
-          borderRadius: `0 0 ${WING_R}px ${WING_R}px`,
-          backdropFilter: 'blur(80px)',
-          boxShadow: isLightMode
-            ? '0 20px 60px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.08)'
-            : '0 20px 60px rgba(0,0,0,0.6), 0 4px 20px rgba(0,0,0,0.4)',
-        }}>
+        {/* Content wrapper — centered relative to the whole silhouette */}
+        <div 
+          className="absolute overflow-hidden"
+          style={{ 
+            left: 34, 
+            right: 34,
+            top: 0,
+            bottom: 0,
+          }}
+        >
         {/* ── COLLAPSED PILL ── */}
         <motion.div
           animate={{ opacity: isExpanded ? 0 : 1 }}
-          className={clsx('absolute inset-0 flex items-center px-4', isExpanded && 'pointer-events-none')}
+          className={clsx('absolute inset-0 flex items-center', isExpanded && 'pointer-events-none')}
           onPointerDown={(e) => !isExpanded && dragControls.start(e)}
         >
           {superPill ? (
@@ -565,7 +597,7 @@ export const DynamicIsland = () => {
               })()}
             </div>
           ) : (
-            <div className="flex items-center justify-between w-full">
+            <div className="flex items-center justify-between w-full px-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl overflow-hidden border border-white/5 bg-zinc-900 relative shrink-0 shadow-lg">
                   {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 m-auto opacity-10" />}

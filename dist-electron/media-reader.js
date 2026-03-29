@@ -3,15 +3,22 @@ import path from "path";
 import { fileURLToPath } from "url";
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 const require$1 = createRequire(import.meta.url);
-const nativePath = path.resolve(__dirname$1, "../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node");
+const devPath = path.resolve(__dirname$1, "../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node");
+const resourcesPath = process.argv[2] || "";
+const prodPath = path.join(resourcesPath, "app.asar.unpacked", "node_modules", "node-nowplaying-win32-x64-msvc", "n-nowplaying.win32-x64-msvc.node");
 let NowPlayingModule;
 try {
   try {
     const npPkg = require$1("node-nowplaying");
     NowPlayingModule = npPkg.NowPlaying;
   } catch (e) {
-    const nativeBinding = require$1(nativePath);
-    NowPlayingModule = nativeBinding.NowPlaying || nativeBinding;
+    try {
+      const binding = require$1(devPath);
+      NowPlayingModule = binding.NowPlaying || binding;
+    } catch (e2) {
+      const binding = require$1(prodPath);
+      NowPlayingModule = binding.NowPlaying || binding;
+    }
   }
   if (!NowPlayingModule) {
     throw new Error("Could not find NowPlaying module");

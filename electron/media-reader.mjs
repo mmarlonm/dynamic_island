@@ -5,11 +5,12 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
-// Path to the native binding: resolved dynamically relative to the script
-const nativePath = path.resolve(__dirname, '../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node');
+// 1. Path in Development (relative to script)
+const devPath = path.resolve(__dirname, '../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node');
 
-
-// console.log(`[CHILD] Attempting absolute resolution for: ${nativePath}`);
+// 2. Path in Production (provided via argv[2] by main.ts)
+const resourcesPath = process.argv[2] || '';
+const prodPath = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', 'node-nowplaying-win32-x64-msvc', 'n-nowplaying.win32-x64-msvc.node');
 
 let NowPlayingModule;
 try {
@@ -17,9 +18,14 @@ try {
     const npPkg = require('node-nowplaying');
     NowPlayingModule = npPkg.NowPlaying;
   } catch (e) {
-    // console.log('[CHILD] Standard resolution failed, seeking absolute native binding...');
-    const nativeBinding = require(nativePath);
-    NowPlayingModule = nativeBinding.NowPlaying || nativeBinding;
+    // Strategy B: Direct load from known paths
+    try {
+      const binding = require(devPath);
+      NowPlayingModule = binding.NowPlaying || binding;
+    } catch (e2) {
+      const binding = require(prodPath);
+      NowPlayingModule = binding.NowPlaying || binding;
+    }
   }
 
   if (!NowPlayingModule) {

@@ -2,7 +2,7 @@ import { app, ipcMain, screen, BrowserWindow } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
-import { fork, exec, spawn } from "node:child_process";
+import { fork, spawn, exec } from "node:child_process";
 import os from "node:os";
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname$1, "..");
@@ -178,18 +178,21 @@ setInterval(() => {
   prevCpus = currCpus;
   win.webContents.send("system-update", { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
 }, 2e3);
+const getResPath = (relPath) => {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, relPath);
+  }
+  const devPath = path.join(process.cwd(), relPath);
+  if (fs.existsSync(devPath)) return devPath;
+  return path.join(__dirname$1, "..", relPath);
+};
 let mediaProc = null;
 try {
-  let mediaReaderPath = path.join(__dirname$1, "media-reader.js");
-  if (!fs.existsSync(mediaReaderPath)) {
-    mediaReaderPath = path.join(__dirname$1, "..", "electron", "media-reader.mjs");
-    if (!fs.existsSync(mediaReaderPath)) {
-      mediaReaderPath = path.join(process.cwd(), "electron", "media-reader.mjs");
-    }
-  }
-  mediaProc = fork(mediaReaderPath, [], {
+  const mediaReaderPath = app.isPackaged ? path.join(__dirname$1, "media-reader.js") : path.join(process.cwd(), "electron", "media-reader.mjs");
+  console.log(`[MAIN] Launching Media Reader: ${mediaReaderPath}`);
+  mediaProc = fork(mediaReaderPath, [process.resourcesPath || ""], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    stdio: ["pipe", "pipe", "pipe", "ipc"]
+    stdio: ["inherit", "inherit", "inherit", "ipc"]
   });
   let lastMediaMsg = null;
   if (mediaProc) {
@@ -211,10 +214,6 @@ try {
   let psMeetBuf = "";
   let meetingUpdateSilenceUntil = 0;
   const startMeetPS = () => {
-    try {
-      exec('taskkill /F /IM powershell.exe /FI "WINDOWTITLE eq notchly-meet.ps1*"');
-    } catch (e) {
-    }
     const psPath = path.join(os.tmpdir(), "notchly-meet.ps1");
     const psCode = `
       $ErrorActionPreference = 'Continue'
@@ -472,7 +471,7 @@ try {
     return true;
   });
   ipcMain.handle("media-command", (_event, action) => mediaProc == null ? void 0 : mediaProc.send(action));
-  const volExe = path.join(__dirname$1, "..", "volume.exe");
+  const volExe = getResPath("volume.exe");
   const getVol = () => new Promise((res) => {
     exec(`"${volExe}" get`, (err, stdout) => {
       if (err) return res(-1);

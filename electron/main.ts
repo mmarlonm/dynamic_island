@@ -224,20 +224,30 @@ setInterval(() => {
   win.webContents.send('system-update', { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
 }, 2000);
 
+// Resource Path Helper for Production
+const getResPath = (relPath: string) => {
+  if (app.isPackaged) {
+    // In production, files are in the 'resources' folder
+    return path.join(process.resourcesPath, relPath);
+  }
+  // In development, files are relative to the project root or electron folder
+  const devPath = path.join(process.cwd(), relPath);
+  if (fs.existsSync(devPath)) return devPath;
+  return path.join(__dirname, '..', relPath); 
+};
+
 let mediaProc: any = null;
 try {
-  let mediaReaderPath = path.join(__dirname, 'media-reader.js');
-  if (!fs.existsSync(mediaReaderPath)) {
-    // Fallback to source directory or different extension for dev
-    mediaReaderPath = path.join(__dirname, '..', 'electron', 'media-reader.mjs');
-    if (!fs.existsSync(mediaReaderPath)) {
-       mediaReaderPath = path.join(process.cwd(), 'electron', 'media-reader.mjs');
-    }
-  }
+  // CORRECT PATH LOGIC: compiled .js in prod, source .mjs in dev
+  const mediaReaderPath = app.isPackaged 
+    ? path.join(__dirname, 'media-reader.js') 
+    : path.join(process.cwd(), 'electron', 'media-reader.mjs');
+    
+  console.log(`[MAIN] Launching Media Reader: ${mediaReaderPath}`);
 
-  mediaProc = fork(mediaReaderPath, [], {
+  mediaProc = fork(mediaReaderPath, [process.resourcesPath || ''], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+    stdio: ['inherit', 'inherit', 'inherit', 'ipc']
   });
 
   let lastMediaMsg: any = null;
@@ -260,7 +270,6 @@ try {
   let meetingUpdateSilenceUntil = 0;
 
   const startMeetPS = () => {
-    try { exec('taskkill /F /IM powershell.exe /FI "WINDOWTITLE eq notchly-meet.ps1*"'); } catch(e){}
     const psPath = path.join(os.tmpdir(), 'notchly-meet.ps1');
     const psCode = `
       $ErrorActionPreference = 'Continue'
@@ -550,7 +559,7 @@ try {
   ipcMain.handle('media-command', (_event, action) => mediaProc?.send(action));
 
   // ── Volume control (High Performance Native C#) ──────────────────────────
-  const volExe = path.join(__dirname, '..', 'volume.exe');
+  const volExe = getResPath('volume.exe');
   
   const getVol = (): Promise<number> => new Promise(res => {
     exec(`"${volExe}" get`, (err, stdout) => {
@@ -616,7 +625,10 @@ try {
     }
   });
 
-  app.on('before-quit', () => { mediaProc?.kill(); psMeet?.kill(); });
+  app.on('before-quit', () => { 
+    mediaProc?.kill(); 
+    psMeet?.kill(); 
+  });
 } catch (err) { }
 
 app.on('window-all-closed', () => {
