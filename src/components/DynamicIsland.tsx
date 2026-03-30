@@ -8,35 +8,121 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 
-// ── Animated wave visualizer ─────────────────────────────────────────────────
-const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => (
-  <div className="w-12 h-4 flex items-center justify-center pointer-events-none overflow-visible">
-    <svg width="48" height="16" viewBox="0 0 48 16">
-      <defs>
-        <linearGradient id="wg" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#34d399" />
-          <stop offset="100%" stopColor="#fb923c" />
-        </linearGradient>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="1.2" result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-      </defs>
-      <motion.path
-        fill="none" stroke="url(#wg)" strokeWidth="2" strokeLinecap="round"
-        filter="url(#glow)"
-        animate={{
-          d: isPlaying
-            ? ['M 0 8 Q 6 2 12 8 Q 18 14 24 8 Q 30 2 36 8 Q 42 14 48 8',
-               'M 0 8 Q 6 14 12 8 Q 18 2 24 8 Q 30 14 36 8 Q 42 2 48 8',
-               'M 0 8 Q 6 2 12 8 Q 18 14 24 8 Q 30 2 36 8 Q 42 14 48 8']
-            : 'M 0 8 L 48 8'
-        }}
-        transition={{ duration: 0.85, repeat: isPlaying ? Infinity : 0, ease: 'linear' }}
-      />
-    </svg>
-  </div>
-);
+// ── Modern Reactive Sound Visualizer (5-bar Equalizer) ──────────────────────
+const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => {
+  const [bars, setBars] = useState([4, 4, 4, 4, 4]); // Heights (1-16px)
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const stopStream = () => {
+    if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        streamRef.current = null;
+    }
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    analyserRef.current = null;
+  };
+
+  useEffect(() => {
+    let active = true;
+    let timer: any;
+
+    const setupAnalyser = async () => {
+      // 1. Mandatory cleanup of previous attempts
+      stopStream();
+
+      if (!isPlaying) {
+        setBars([4, 4, 4, 4, 4]);
+        return;
+      }
+
+      // Small delay: Chromium's desktop capture system needs safety gaps after song/state changes
+      timer = setTimeout(async () => {
+        try {
+          const ipc = (window as any).ipcRenderer;
+          const sourceId = await ipc?.invoke('get-system-audio-id');
+          if (!sourceId || !active) return;
+
+          // Constraints: Chromium on Windows is more robust when both video and audio are requested
+          // for the same sourceId, even if we only use audio.
+          const constraints = {
+            audio: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } },
+            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } }
+          };
+
+          const stream = await (window as any).navigator.mediaDevices.getUserMedia(constraints as any);
+          if (!active) { 
+            stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); 
+            return; 
+          }
+          
+          streamRef.current = stream;
+          // Stop video immediately to save resources
+          stream.getVideoTracks().forEach((t: MediaStreamTrack) => t.stop());
+
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const src = ctx.createMediaStreamSource(stream);
+          const ans = ctx.createAnalyser();
+          ans.fftSize = 64; 
+          src.connect(ans);
+          analyserRef.current = ans;
+
+          const update = () => {
+            if (!active) return;
+            const data = new Uint8Array(ans.frequencyBinCount);
+            ans.getByteFrequencyData(data);
+            
+            const newBars = [
+              Math.max(4, (data[1] / 255) * 16),
+              Math.max(4, (data[3] / 255) * 16),
+              Math.max(4, (data[5] / 255) * 16),
+              Math.max(4, (data[2] / 255) * 16),
+              Math.max(4, (data[7] / 255) * 16)
+            ];
+            setBars(newBars);
+            rafRef.current = requestAnimationFrame(update);
+          };
+          update();
+        } catch (e) {
+          console.warn('[VISUALIZER] Audio capture failed:', e);
+          const sim = () => {
+            if (!active) return;
+            setBars(bars.map(() => Math.random() * 12 + 4));
+            rafRef.current = requestAnimationFrame(sim);
+          };
+          sim();
+        }
+      }, 150);
+    };
+
+    setupAnalyser();
+    return () => { 
+      active = false; 
+      clearTimeout(timer);
+      stopStream();
+    };
+  }, [isPlaying]);
+
+  return (
+    <div className="w-10 h-4 flex items-center justify-center gap-[3px] pointer-events-none px-1 overflow-hidden" 
+         style={{ filter: !isPlaying ? 'grayscale(1) opacity(0.3)' : 'none' }}>
+      {bars.map((h, i) => (
+        <motion.div
+  key={i}
+  animate={{ height: isPlaying ? h : 4 }}
+  transition={{ type: 'spring', stiffness: 350, damping: 18 }}
+  className="w-[3px] rounded-full"
+  style={{
+    background: isPlaying 
+      ? `linear-gradient(to top, #34d399, #3b82f6)` 
+      : 'rgba(255,255,255,0.2)'
+  }}
+/>
+      ))}
+    </div>
+  );
+};
 
 // ── Floating timer circle (pill-mode) ────────────────────────────────────────
 const TimerBubble = ({ time, total, isActive, isLightMode }: { time: number; total: number; isActive: boolean; isLightMode: boolean }) => {
@@ -320,45 +406,57 @@ export const DynamicIsland = () => {
 
   useEffect(() => {
     let active = true;
+    let timer: any;
+
     const startStream = async () => {
       // Cleanup old stream
       if (stream) {
-        stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
         setStream(null);
       }
 
       if (!showPreview || !media.title || media.title === 'Ningún origen de medios') return;
 
-      try {
-        const sourceId = await (window as any).ipcRenderer?.invoke('get-media-source-id', { 
-          title: media.title, 
-          artist: media.artist 
-        });
-        
-        if (!active || !sourceId) return;
+      // Small delay: Desktop capture ID blessing in Chromium needs a safety gap
+      timer = setTimeout(async () => {
+        try {
+          const sourceId = await (window as any).ipcRenderer?.invoke('get-media-source-id', { 
+            title: media.title, 
+            artist: media.artist 
+          });
+          
+          if (!active || !sourceId) return;
 
-        const s = await (window as any).navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: sourceId,
-              minWidth: 480,
-              maxWidth: 1280,
-              minHeight: 270,
-              maxHeight: 720
+          const s = await (window as any).navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: sourceId,
+                minWidth: 480,
+                maxWidth: 1280,
+                minHeight: 270,
+                maxHeight: 720
+              }
             }
-          }
-        } as any);
+          } as any);
 
-        if (active) setStream(s);
-      } catch (e) {
-        console.error('[DYNAMIC_ISLAND] Error capturing window:', e);
-      }
+          if (active) {
+            setStream(s);
+          } else {
+            s.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+          }
+        } catch (e) {
+          console.error('[DYNAMIC_ISLAND] Error capturing window:', e);
+        }
+      }, 150);
     };
 
     startStream();
-    return () => { active = false; };
+    return () => { 
+      active = false; 
+      clearTimeout(timer);
+    };
   }, [showPreview, media.title, media.artist]);
 
   useEffect(() => {

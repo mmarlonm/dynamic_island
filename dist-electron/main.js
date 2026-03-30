@@ -14,6 +14,21 @@ let currentMicState = false;
 let isUserMuted = false;
 let isUserCamOff = false;
 let meetingExitCounter = 0;
+let proximityInterval = null;
+let systemUpdateInterval = null;
+let notifInterval = null;
+let volInterval = null;
+function safeSend(w, channel, ...args) {
+  if (!w || w.isDestroyed()) return;
+  try {
+    const wc = w.webContents;
+    if (!wc || wc.isDestroyed() || wc.isCrashed()) return;
+    const mf = wc.mainFrame;
+    if (mf && typeof mf.isDestroyed === "function" && mf.isDestroyed()) return;
+    wc.send(channel, ...args);
+  } catch (e) {
+  }
+}
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.bounds;
@@ -41,9 +56,14 @@ function createWindow() {
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
   win.webContents.on("did-finish-load", () => {
-    win == null ? void 0 : win.show();
-    win == null ? void 0 : win.focus();
     pollVol();
+  });
+  win.on("closed", () => {
+    if (proximityInterval) clearInterval(proximityInterval);
+    if (systemUpdateInterval) clearInterval(systemUpdateInterval);
+    if (notifInterval) clearInterval(notifInterval);
+    if (volInterval) clearTimeout(volInterval);
+    win = null;
   });
   ipcMain.on("set-ignore-mouse-events", (event, ignore) => {
     if (win && !win.isDestroyed()) {
@@ -65,7 +85,12 @@ function createWindow() {
   });
   ipcMain.on("set-is-super-pill", (event, active) => {
   });
-  setInterval(() => {
+  ipcMain.handle("get-system-audio-id", async () => {
+    var _a;
+    const sources = await desktopCapturer.getSources({ types: ["screen"] });
+    return (_a = sources[0]) == null ? void 0 : _a.id;
+  });
+  proximityInterval = setInterval(() => {
     if (!win || win.isDestroyed()) return;
     const { x, y } = screen.getCursorScreenPoint();
     const b = win.getBounds();
@@ -73,7 +98,7 @@ function createWindow() {
     const relX = x - islandCenterX;
     const relY = y - b.y;
     const [winW, winH] = win.getSize();
-    win.webContents.send("mouse-proximity", { relX, relY });
+    safeSend(win, "mouse-proximity", { relX, relY });
   }, 35);
 }
 const singleInstanceLock = app.requestSingleInstanceLock();
@@ -152,7 +177,7 @@ ipcMain.handle("end-call", async () => {
   return true;
 });
 let prevCpus = os.cpus();
-setInterval(() => {
+systemUpdateInterval = setInterval(() => {
   if (!win || win.isDestroyed()) return;
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
@@ -168,7 +193,7 @@ setInterval(() => {
   }
   const cpuUsage = totalDiff > 0 ? (1 - idleDiff / totalDiff) * 100 : 0;
   prevCpus = currCpus;
-  win.webContents.send("system-update", { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
+  safeSend(win, "system-update", { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
 }, 2e3);
 const getResPath = (relPath) => {
   if (app.isPackaged) {
@@ -206,10 +231,10 @@ const pollVol = async () => {
   if (!win || win.isDestroyed()) return;
   try {
     const v = await getVol();
-    if (v >= 0) win.webContents.send("volume-update", v);
+    if (v >= 0) safeSend(win, "volume-update", v);
   } catch (e) {
   }
-  setTimeout(pollVol, 1500);
+  volInterval = setTimeout(pollVol, 1500);
 };
 let mediaProc = null;
 try {
@@ -230,7 +255,7 @@ try {
     mediaProc.on("message", (msg) => {
       if ((msg == null ? void 0 : msg.type) === "MEDIA_UPDATE") {
         lastMediaMsg = msg.data;
-        win == null ? void 0 : win.webContents.send("media-update", msg.data);
+        safeSend(win, "media-update", msg.data);
       }
     });
   }
@@ -444,7 +469,7 @@ try {
             }
             const camFinal = isUserCamOff ? false : camUse;
             if (Date.now() < meetingUpdateSilenceUntil) return;
-            win == null ? void 0 : win.webContents.send("meeting-update", {
+            safeSend(win, "meeting-update", {
               isActive,
               app: isActuallyActive || isActive ? app2 || "Llamada Activa" : "",
               device: btDevice || "Sistema",
@@ -460,7 +485,7 @@ try {
     psMeet.on("exit", () => setTimeout(startMeetPS, 5e3));
   };
   setTimeout(startMeetPS, 3e3);
-  setInterval(() => {
+  notifInterval = setInterval(() => {
     if (!win || win.isDestroyed()) return;
     const psNotif = `
       $noise = 'SideBySide','VSS','ESENT','MSExchange','Security-SPP','Desktop Window Manager','.NET Runtime','Windows Error Reporting','DistributedCOM','Service Control Manager';
@@ -479,7 +504,7 @@ try {
       const [id, appStr, msg] = parts;
       if (!id || id === lastNotifId) return;
       lastNotifId = id;
-      win == null ? void 0 : win.webContents.send("notification", { app: appStr, text: msg });
+      safeSend(win, "notification", { app: appStr, text: msg });
     });
   }, 3e3);
   ipcMain.handle("get-media-source-id", async (_event, mediaInfo) => {

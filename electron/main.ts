@@ -23,6 +23,27 @@ let isUserMuted = false
 let isUserCamOff = false;  // Track manual camera toggle
 let meetingExitCounter = 0 // Debounce meeting exit
 
+let proximityInterval: NodeJS.Timeout | null = null;
+let systemUpdateInterval: NodeJS.Timeout | null = null;
+let notifInterval: NodeJS.Timeout | null = null;
+let volInterval: NodeJS.Timeout | null = null;
+
+function safeSend(w: BrowserWindow | null, channel: string, ...args: any[]) {
+  if (!w || w.isDestroyed()) return;
+  try {
+    const wc = w.webContents;
+    if (!wc || wc.isDestroyed() || wc.isCrashed()) return;
+    
+    // Check main frame if available (Electron 22+)
+    const mf = (wc as any).mainFrame;
+    if (mf && (typeof mf.isDestroyed === 'function') && mf.isDestroyed()) return;
+
+    wc.send(channel, ...args);
+  } catch (e: any) {
+    // Silence disposed frame errors
+  }
+}
+
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width, height } = primaryDisplay.bounds
@@ -56,10 +77,16 @@ function createWindow() {
   }
 
   win.webContents.on('did-finish-load', () => {
-    win?.show();
-    win?.focus();
     // Start volume polling once UI is ready
     pollVol(); 
+  });
+
+  win.on('closed', () => {
+    if (proximityInterval) clearInterval(proximityInterval);
+    if (systemUpdateInterval) clearInterval(systemUpdateInterval);
+    if (notifInterval) clearInterval(notifInterval);
+    if (volInterval) clearTimeout(volInterval);
+    win = null;
   });
 
 
@@ -99,7 +126,12 @@ function createWindow() {
     isSuperPill = active;
   });
 
-  setInterval(() => {
+  ipcMain.handle('get-system-audio-id', async () => {
+    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+    return sources[0]?.id; // System audio is typically shared on Windows screen sources
+  });
+
+  proximityInterval = setInterval(() => {
     if (!win || win.isDestroyed()) return;
     const { x, y } = screen.getCursorScreenPoint();
     const b = win.getBounds();
@@ -118,7 +150,7 @@ function createWindow() {
     // Bubble zones move with the island
     // Left bubble (Call): Starts at -220px (180 center + 40 margin) up to -380px (if expanded to 160px)
     // Right bubbles (Timer/Notif): Starts at 204px (180 center + 24 margin) up to ~260px (56px width)
-    win.webContents.send('mouse-proximity', { relX, relY });
+    safeSend(win, 'mouse-proximity', { relX, relY });
   }, 35);
 }
 
@@ -201,7 +233,7 @@ ipcMain.handle('end-call', async () => {
 
 // System Monitoring
 let prevCpus = os.cpus();
-setInterval(() => {
+systemUpdateInterval = setInterval(() => {
   if (!win || win.isDestroyed()) return;
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
@@ -217,7 +249,7 @@ setInterval(() => {
   }
   const cpuUsage = totalDiff > 0 ? (1 - idleDiff / totalDiff) * 100 : 0;
   prevCpus = currCpus;
-  win.webContents.send('system-update', { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
+  safeSend(win, 'system-update', { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
 }, 2000);
 
 // Resource Path Helper for Production
@@ -261,9 +293,9 @@ const pollVol = async () => {
   if (!win || win.isDestroyed()) return;
   try {
     const v = await getVol();
-    if (v >= 0) win.webContents.send('volume-update', v);
+    if (v >= 0) safeSend(win, 'volume-update', v);
   } catch (e) {}
-  setTimeout(pollVol, 1500); 
+  volInterval = setTimeout(pollVol, 1500); 
 };
 
 let mediaProc: any = null;
@@ -288,7 +320,7 @@ try {
     }
 
     mediaProc.on('message', (msg: any) => {
-      if (msg?.type === 'MEDIA_UPDATE') { lastMediaMsg = msg.data; win?.webContents.send('media-update', msg.data); }
+      if (msg?.type === 'MEDIA_UPDATE') { lastMediaMsg = msg.data; safeSend(win, 'media-update', msg.data); }
     });
   }
 
@@ -530,7 +562,7 @@ try {
               if (Date.now() < meetingUpdateSilenceUntil) return;
 
 
-              win?.webContents.send('meeting-update', {
+              safeSend(win, 'meeting-update', {
                 isActive,
                 app: (isActuallyActive || isActive) ? (app || 'Llamada Activa') : '', 
                 device: btDevice || 'Sistema',
@@ -547,7 +579,7 @@ try {
   setTimeout(startMeetPS, 3000);
 
   // Notification Polling (Windows Event Logs)
-  setInterval(() => {
+  notifInterval = setInterval(() => {
     if (!win || win.isDestroyed()) return;
     const psNotif = `
       $noise = 'SideBySide','VSS','ESENT','MSExchange','Security-SPP','Desktop Window Manager','.NET Runtime','Windows Error Reporting','DistributedCOM','Service Control Manager';
@@ -566,7 +598,7 @@ try {
       const [id, appStr, msg] = parts;
       if (!id || id === lastNotifId) return;
       lastNotifId = id;
-      win?.webContents.send('notification', { app: appStr, text: msg });
+      safeSend(win, 'notification', { app: appStr, text: msg });
     });
   }, 3000);
 
