@@ -703,11 +703,15 @@ export const DynamicIsland = () => {
                     <span className="text-[14px] font-black truncate tracking-tight leading-tight">{media.title}</span>
                     <span className="text-[10px] font-bold truncate" style={{ opacity: 0.45 }}>{media.artist}</span>
                     <div className="flex items-center gap-3 mt-2">
-                      <SkipBack    onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="w-4 h-4 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
+                      <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                        <SkipBack className="w-4 h-4" />
+                      </button>
                       <button      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-7 h-7 hover:scale-110 transition-all outline-none">
                         {media.isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
                       </button>
-                      <SkipForward onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="w-4 h-4 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
+                      <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                        <SkipForward className="w-4 h-4" />
+                      </button>
                     </div>
                     {/* Compact volume slider */}
                     <div className="flex items-center gap-1.5 mt-2 w-full">
@@ -862,11 +866,15 @@ export const DynamicIsland = () => {
                   <span className="text-[15px] font-black truncate w-full tracking-tight leading-tight">{media.title}</span>
                   <span className="text-[11px] font-bold truncate w-full" style={{ opacity: 0.4 }}>{media.artist}</span>
                   <div className="flex items-center gap-5 mt-1">
-                    <SkipBack    onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="w-5 h-5 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
+                    <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                      <SkipBack className="w-5 h-5" />
+                    </button>
                     <button      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-11 h-11 rounded-full flex items-center justify-center border outline-none hover:scale-105 transition-all shadow-xl" style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.12)' }}>
                       {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
                     </button>
-                    <SkipForward onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="w-5 h-5 cursor-pointer hover:scale-110 transition-all" style={{ opacity: 0.4 }} />
+                    <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                      <SkipForward className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
                 {/* Right: volume slider column */}
