@@ -1,44 +1,55 @@
-import { createRequire as s } from "module";
-import t from "path";
-import { fileURLToPath as c } from "url";
-const l = t.dirname(c(import.meta.url)), i = s(import.meta.url), p = t.resolve(l, "../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node"), d = process.argv[2] || "", y = t.join(d, "app.asar.unpacked", "node_modules", "node-nowplaying-win32-x64-msvc", "n-nowplaying.win32-x64-msvc.node");
-let a;
+import { createRequire } from "module";
+import path from "path";
+import { fileURLToPath } from "url";
+const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
+const require$1 = createRequire(import.meta.url);
+const devPath = path.resolve(__dirname$1, "../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node");
+const resourcesPath = process.argv[2] || "";
+const prodPath = path.join(resourcesPath, "app.asar.unpacked", "node_modules", "node-nowplaying-win32-x64-msvc", "n-nowplaying.win32-x64-msvc.node");
+let NowPlayingModule;
 try {
   try {
-    a = i("node-nowplaying").NowPlaying;
-  } catch {
+    const npPkg = require$1("node-nowplaying");
+    NowPlayingModule = npPkg.NowPlaying;
+  } catch (e) {
     try {
-      const o = i(p);
-      a = o.NowPlaying || o;
-    } catch {
-      const r = i(y);
-      a = r.NowPlaying || r;
+      const binding = require$1(devPath);
+      NowPlayingModule = binding.NowPlaying || binding;
+    } catch (e2) {
+      const binding = require$1(prodPath);
+      NowPlayingModule = binding.NowPlaying || binding;
     }
   }
-  if (!a)
+  if (!NowPlayingModule) {
     throw new Error("Could not find NowPlaying module");
-  const e = new a((n) => {
-    process.send && process.send({
-      type: "MEDIA_UPDATE",
-      data: {
-        title: n.trackName || "Sin Reproducción",
-        artist: n.artist || [],
-        album: n.album || "",
-        isPlaying: n.isPlaying || !1,
-        thumbnail: n.thumbnail || "",
-        id: n.id || "system",
-        progress: 0
-      }
-    });
-  });
-  e.subscribe().catch((n) => {
-  }), process.on("message", async (n) => {
-    try {
-      n === "playPause" && await e.playPause(), n === "next" && await e.nextTrack(), n === "prev" && await e.previousTrack();
-    } catch {
+  }
+  const np = new NowPlayingModule((msg) => {
+    if (process.send) {
+      process.send({
+        type: "MEDIA_UPDATE",
+        data: {
+          title: msg.trackName || "Sin Reproducción",
+          artist: msg.artist || [],
+          album: msg.album || "",
+          isPlaying: msg.isPlaying || false,
+          thumbnail: msg.thumbnail || "",
+          id: msg.id || "system",
+          progress: 0
+        }
+      });
     }
   });
-} catch {
+  np.subscribe().catch((err) => {
+  });
+  process.on("message", async (cmd) => {
+    try {
+      if (cmd === "playPause") await np.playPause();
+      if (cmd === "next") await np.nextTrack();
+      if (cmd === "prev") await np.previousTrack();
+    } catch (e) {
+    }
+  });
+} catch (e) {
 }
 setInterval(() => {
 }, 1e3);

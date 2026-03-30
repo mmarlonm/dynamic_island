@@ -3,7 +3,8 @@ import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
-  EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff
+  EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -312,6 +313,7 @@ export const DynamicIsland = () => {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [superPill, setSuperPill] = useState(false);
   const [superPillMode, setSuperPillMode] = useState<'Auto' | 'Multimedia' | 'Clima'>('Auto');
+  const [calendarOffset, setCalendarOffset] = useState(0);
 
   // Refs to avoid stale closure in IPC listener
   const isPinnedRef    = useRef(false);
@@ -467,7 +469,6 @@ export const DynamicIsland = () => {
 
   // Wing/body colors must match exactly for seamless look
   const WING_R   = 34;
-  const monthName = currentTime.toLocaleString(lang === 'zh' ? 'zh-CN' : lang, { month: 'short' });
   const showTimerBubble = timerTime > 0 && !isExpanded;
   const showNotifBubble = notifications.length > 0 && !isExpanded;
 
@@ -489,7 +490,14 @@ export const DynamicIsland = () => {
           }}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => { if (!isPinned && !showSettings) setIsHovered(false); }}
-          className="relative pointer-events-auto cursor-grab active:cursor-grabbing"
+          onClick={(e) => {
+             const target = e.target as HTMLElement;
+             // If clicking an actual button/input or its icon, let it handle the event
+             if (target.closest('button') || target.closest('input') || target.closest('a')) return;
+             // Otherwise, toggle the 'Anclaje' (Pin) state
+             setIsPinned(!isPinned);
+          }}
+          className="relative pointer-events-auto cursor-default"
           style={{
             overflow: 'visible',
             color: isLightMode ? '#111' : '#fff',
@@ -717,32 +725,63 @@ export const DynamicIsland = () => {
                 {/* Col 2: Week calendar — selectable days */}
                 {(() => {
                   const today = currentTime;
+                  const targetDate = new Date(today);
+                  targetDate.setDate(targetDate.getDate() + (calendarOffset * 7));
+                  
                   const todayNum = today.getDate();
                   const todayMonth = today.getMonth();
-                  const dayOfWeek = today.getDay();
+                  
                   const days = Array.from({ length: 7 }, (_, i) => {
-                    const d = new Date(today);
-                    d.setDate(todayNum - dayOfWeek + i);
+                    const d = new Date(targetDate);
+                    d.setDate(targetDate.getDate() - targetDate.getDay() + i);
                     return d;
                   });
                   const dayAbbr = ['S','M','T','W','T','F','S'];
                   const sel = selectedDay;
+                  
+                  // For the title: show the month of the current view
+                  const viewMonth = targetDate.toLocaleString(lang === 'zh' ? 'zh-CN' : lang, { month: 'short' });
+                  
                   return (
                     <div className="flex-1 flex flex-col justify-center px-5 border-r" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                      <div className="flex items-baseline gap-2 font-black mb-2">
-                        <span className="text-[24px] tracking-tighter leading-none" style={{ opacity: 0.9 }}>{monthName}</span>
-                        <span className="text-[12px] text-blue-400 font-mono font-black">{todayNum}</span>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-baseline gap-2 font-black">
+                          <span className="text-[22px] tracking-tighter leading-none" style={{ opacity: 0.9 }}>{viewMonth}</span>
+                          <span className="text-[12px] text-blue-400 font-mono font-black">{calendarOffset === 0 ? todayNum : ''}</span>
+                        </div>
+                        <div className="flex items-center gap-1 no-drag pointer-events-auto">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setCalendarOffset(p => p - 1); }}
+                            className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5 text-blue-400 opacity-60" />
+                          </button>
+                          {calendarOffset !== 0 && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setCalendarOffset(0); }}
+                              className="px-1.5 py-0.5 rounded text-[7px] font-black uppercase bg-blue-500/20 text-blue-400"
+                            >
+                              Hoy
+                            </button>
+                          )}
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setCalendarOffset(p => p + 1); }}
+                            className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5 text-blue-400 opacity-60" />
+                          </button>
+                        </div>
                       </div>
                       <div className="flex items-center justify-between">
                         {days.map((d, i) => {
-                          const isToday   = d.getDate() === todayNum && d.getMonth() === todayMonth;
+                          const isToday   = d.getDate() === todayNum && d.getMonth() === todayMonth && calendarOffset === 0;
                           const isSel     = sel && d.getDate() === sel.getDate() && d.getMonth() === sel.getMonth();
                           const isWeekend = i === 0 || i === 6;
                           return (
                             <button
                               key={i}
-                              onClick={() => setSelectedDay(isSel ? null : new Date(d))}
-                              className="flex flex-col items-center gap-0.5 outline-none"
+                              onClick={(e) => { e.stopPropagation(); setSelectedDay(isSel ? null : new Date(d)); }}
+                              className="flex flex-col items-center gap-0.5 outline-none no-drag pointer-events-auto"
                             >
                               <span className="text-[7.5px] font-black uppercase" style={{ opacity: isToday ? 1 : 0.3, color: isWeekend && !isToday ? 'rgba(255,100,100,0.7)' : 'inherit' }}>{dayAbbr[i]}</span>
                               <div
