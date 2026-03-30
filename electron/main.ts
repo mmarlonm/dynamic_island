@@ -1,5 +1,5 @@
 
-import { app, BrowserWindow, screen, ipcMain } from 'electron'
+import { app, BrowserWindow, screen, ipcMain, desktopCapturer } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
@@ -85,6 +85,11 @@ function createWindow() {
     isExpandedMode = expanded;
   });
 
+  let isPreviewMode = false;
+  ipcMain.on('set-is-preview', (event, preview) => {
+    isPreviewMode = preview;
+  });
+
   let currentIslandX = 0;
   let isSuperPill = false;
   ipcMain.on('update-island-pos', (event, x) => {
@@ -106,25 +111,14 @@ function createWindow() {
     const [winW, winH] = win.getSize();
     
     // Body proximity: matched to actual component widths
-    // Collapsed: 360 (180 radius), Expanded: 680 (340 radius), SuperPill: 64 (32 radius)
-    const islandRadius = isExpandedMode ? 350 : (isSuperPill ? 40 : 180); 
+    // Collapsed: 360+68=428 (214 radius), Expanded: 680+68=748 (374 radius), SuperPill: 72+68=140 (70 radius), Preview: 840+68=908 (454 radius)
+    const islandRadius = isExpandedMode ? (isPreviewMode ? 455 : 375) : (isSuperPill ? 72 : 215); 
     const isOverIsland = Math.abs(relX) <= islandRadius;
     
     // Bubble zones move with the island
     // Left bubble (Call): Starts at -220px (180 center + 40 margin) up to -380px (if expanded to 160px)
     // Right bubbles (Timer/Notif): Starts at 204px (180 center + 24 margin) up to ~260px (56px width)
-    const isOverBubble = (!isExpandedMode && !isSuperPill && (
-      (relX >= -380 && relX <= -220) || // Left bubble (Call)
-      (relX >= 200 && relX <= 270)      // Right bubbles (Timer/Notif)
-    ));
-    
-    // Height limit: collapsed is exactly 66px. Bubbles are 56px. SuperPill is 48px.
-    const heightLimit = isExpandedMode ? winH - 10 : (isSuperPill ? 48 : 66); 
-
-    const isInside = (isOverIsland || isOverBubble) && relY >= 0 && relY <= heightLimit;
-
-    win.setIgnoreMouseEvents(!isInside, { forward: true });
-    win.webContents.send('mouse-proximity', { isNear: isInside, relX, relY });
+    win.webContents.send('mouse-proximity', { relX, relY });
   }, 35);
 }
 
@@ -575,6 +569,38 @@ try {
       win?.webContents.send('notification', { app: appStr, text: msg });
     });
   }, 3000);
+
+  ipcMain.handle('get-media-source-id', async (_event, mediaInfo) => {
+    try {
+      const sources = await desktopCapturer.getSources({ 
+        types: ['window'], 
+        thumbnailSize: { width: 0, height: 0 } 
+      });
+      const { title, artist } = mediaInfo;
+      if (!title || title === 'Ningún origen de medios') return null;
+
+      const t = title.toLowerCase();
+      const a = (Array.isArray(artist) ? artist : [artist]).map((x: string) => x.toLowerCase());
+
+      // Attempt high-fidelity match first: title + artist
+      let source = sources.find(s => {
+        const n = s.name.toLowerCase();
+        return n.includes(t) && a.some(x => n.includes(x));
+      });
+
+      // Fallback: match title only
+      if (!source) source = sources.find(s => s.name.toLowerCase().includes(t));
+
+      // Second fallback: match common app names if it's the only one
+      if (!source && a.some(x => x.includes('spotify'))) {
+         source = sources.find(s => s.name.toLowerCase().includes('spotify'));
+      }
+
+      return source ? source.id : null;
+    } catch (e) {
+      return null;
+    }
+  });
 
   ipcMain.handle('get-current-media', async () => {
     if (lastMediaMsg) return lastMediaMsg;

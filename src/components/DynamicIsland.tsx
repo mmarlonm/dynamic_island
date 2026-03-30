@@ -291,7 +291,7 @@ export const DynamicIsland = () => {
   const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>('Moderno');
   const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas']);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '' });
+  const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '', id: '' });
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
   const [systemInfo, setSystemInfo]   = useState({ cpu: 12, ram: 45, net: 2.1 });
   const [weather, setWeather]         = useState({ temp: '22' });
@@ -314,11 +314,62 @@ export const DynamicIsland = () => {
   const [superPill, setSuperPill] = useState(false);
   const [superPillMode, setSuperPillMode] = useState<'Auto' | 'Multimedia' | 'Clima'>('Auto');
   const [calendarOffset, setCalendarOffset] = useState(0);
+  const [showPreview, setShowPreview] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    const startStream = async () => {
+      // Cleanup old stream
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        setStream(null);
+      }
+
+      if (!showPreview || !media.title || media.title === 'Ningún origen de medios') return;
+
+      try {
+        const sourceId = await (window as any).ipcRenderer?.invoke('get-media-source-id', { 
+          title: media.title, 
+          artist: media.artist 
+        });
+        
+        if (!active || !sourceId) return;
+
+        const s = await (window as any).navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+              minWidth: 480,
+              maxWidth: 1280,
+              minHeight: 270,
+              maxHeight: 720
+            }
+          }
+        } as any);
+
+        if (active) setStream(s);
+      } catch (e) {
+        console.error('[DYNAMIC_ISLAND] Error capturing window:', e);
+      }
+    };
+
+    startStream();
+    return () => { active = false; };
+  }, [showPreview, media.title, media.artist]);
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
 
   // Refs to avoid stale closure in IPC listener
   const isPinnedRef    = useRef(false);
   const showSettingsRef = useRef(false);
-  const setIsHoveredRef = useRef(setIsHovered);
   const isHoveredRef    = useRef(false);
   const [islandX, setIslandX] = useState(0); // Offset from center
   const islandXRef = useRef(0);
@@ -339,9 +390,9 @@ export const DynamicIsland = () => {
   useEffect(() => {
     const clock = setInterval(() => setCurrentTime(new Date()), 1000);
     const ipc = (window as any).ipcRenderer;
-    const hoverTimeoutRef = { current: null as any };
 
     if (ipc) {
+      ipc.send('set-ignore-mouse-events', true); // Estado inicial: ignorar
       ipc.invoke('get-current-media').then((d: any) => { if (d) setMedia(d); }).catch(() => {});
       ipc.invoke('get-volume').then((v: any) => { if (typeof v === 'number') setVolume(v); }).catch(() => {});
       ipc.on('media-update',   (_: any, d: any) => setMedia(d));
@@ -349,36 +400,14 @@ export const DynamicIsland = () => {
       ipc.on('weather-update', (_: any, d: any) => setWeather(d));
       ipc.on('notification',   (_: any, d: any) => setNotifications(p => [{ id: Date.now(), ...d }, ...p.slice(0, 9)]));
       ipc.on('volume-update',  (_: any, v: number) => setVolume(v));
-      // FIX: use refs so handler always reads current isPinned/showSettings (no stale closure)
-      ipc.on('mouse-proximity', (_: any, d: any) => {
-        const near = typeof d === 'object' ? d.isNear : d;
-        if (near) {
-          // If NOT expanded, ignore proximity triggers if they are in the bubble zones (relX > 180 or relX < -180)
-          // This prevents the bubble hover from expanding the main island body.
-          if (!isHoveredRef.current && !isPinnedRef.current && Math.abs(d.relX) > 180) return;
-
-          if (hoverTimeoutRef.current || isHoveredRef.current) return;
-          hoverTimeoutRef.current = setTimeout(() => {
-            setIsHoveredRef.current(true);
-            ipc.send('set-ignore-mouse-events', false);
-            hoverTimeoutRef.current = null;
-          }, 100);
-        } else {
-          if (hoverTimeoutRef.current) {
-            clearTimeout(hoverTimeoutRef.current);
-            hoverTimeoutRef.current = null;
-          }
-          if (!isPinnedRef.current && !showSettingsRef.current) {
-            setIsHoveredRef.current(false);
-            ipc.send('set-ignore-mouse-events', true);
-          }
-        }
-      });
+      ipc.on('mouse-proximity', () => { /* Reservado para efectos visuales futuros */ });
     }
+
     (window as any).ipcRenderer?.on('meeting-update', (_: any, data: any) => {
       if (Date.now() - lastCommandTimeRef.current < 8000) return;
       setMeeting(data);
     });
+
     return () => clearInterval(clock);
   }, []);
 
@@ -440,7 +469,8 @@ export const DynamicIsland = () => {
     const effectivelyExpanded = isExpanded || showSettings;
     ipc.send('set-is-expanded', !!effectivelyExpanded);
     ipc.send('set-is-super-pill', superPill && !effectivelyExpanded);
-  }, [isExpanded, showSettings, activeView, superPill]);
+    ipc.send('set-is-preview', showPreview && activeView === 'Multimedia' && effectivelyExpanded);
+  }, [isExpanded, showSettings, activeView, superPill, showPreview]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const handleMeetingCommand = (cmd: string) => {
@@ -488,14 +518,19 @@ export const DynamicIsland = () => {
             setIslandX(newX);
             (window as any).ipcRenderer?.send('update-island-pos', newX);
           }}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => { if (!isPinned && !showSettings) setIsHovered(false); }}
-          onClick={(e) => {
-             const target = e.target as HTMLElement;
-             // If clicking an actual button/input or its icon, let it handle the event
-             if (target.closest('button') || target.closest('input') || target.closest('a')) return;
-             // Otherwise, toggle the 'Anclaje' (Pin) state
-             setIsPinned(!isPinned);
+          onMouseEnter={() => {
+            setIsHovered(true);
+            (window as any).ipcRenderer?.send('set-ignore-mouse-events', false);
+          }}
+          onMouseLeave={() => {
+            if (!isPinned && !showSettings) {
+              setIsHovered(false);
+              (window as any).ipcRenderer?.send('set-ignore-mouse-events', true);
+            }
+          }}
+          onClick={() => {
+             // Deactivated background pinning by user request. 
+             // Pinning is now EXCLUSIVELY via the Pin Button.
           }}
           className="relative pointer-events-auto cursor-default"
           style={{
@@ -504,7 +539,7 @@ export const DynamicIsland = () => {
             x: islandX,
           }}
           animate={{
-            width: (showSettings ? 720 : isExpanded ? 680 : (superPill ? 72 : 360)) + 68,
+            width: (showSettings ? 720 : isExpanded ? (showPreview && activeView === 'Multimedia' ? 840 : 680) : (superPill ? 72 : 360)) + 68,
             height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 42 : 66),
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
@@ -512,13 +547,17 @@ export const DynamicIsland = () => {
           {/* Call Bubble — Left side, outside hover zone */}
           <AnimatePresence>
             {meeting.isActive && !isExpanded && (
-              <div className="absolute right-full mr-10 top-1 pointer-events-auto translate-y-[-2px]">
+              <div 
+                className="absolute right-full mr-10 top-1 pointer-events-auto translate-y-[-2px]"
+                onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
+                onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
+              >
                 <CallBubble 
                   key="call" 
                   app={meeting.app} 
                   micActive={meeting.micActive} 
                   camActive={meeting.camActive}
-                  onClick={() => { setActiveView('Llamada'); setIsPinned(true); }} 
+                  onClick={() => { setActiveView('Llamada'); }} 
                   onCommand={handleMeetingCommand}
                   onEndCall={() => setMeeting(m => ({ ...m, isActive: false }))}
                 />
@@ -532,8 +571,9 @@ export const DynamicIsland = () => {
             <motion.path
                d={(() => {
                  const isLarge = showSettings || isExpanded;
-                 const w = (showSettings ? 720 : isExpanded ? 680 : (superPill ? 72 : 360));
-                 const h = showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 42 : 66);
+                 const isPreview = showPreview && activeView === 'Multimedia';
+                 const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : 680) : (superPill ? 72 : 360));
+                 const h = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 420 : 180) : (superPill ? 42 : 66);
                  const totalW = w + 68;
                  
                  if (superPill && !isLarge) {
@@ -548,8 +588,9 @@ export const DynamicIsland = () => {
                })()}
                animate={{ d: (() => {
                  const isLarge = showSettings || isExpanded;
-                 const w = (showSettings ? 720 : isExpanded ? 680 : (superPill ? 72 : 360));
-                 const h = showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 42 : 66);
+                 const isPreview = showPreview && activeView === 'Multimedia';
+                 const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : 680) : (superPill ? 72 : 360));
+                 const h = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 420 : 180) : (superPill ? 42 : 66);
                  const totalW = w + 68;
                  
                  if (superPill && !isLarge) {
@@ -854,25 +895,91 @@ export const DynamicIsland = () => {
             {/* MULTIMEDIA — album art left + controls right */}
             {activeView === 'Multimedia' && (
               <div className="absolute inset-0 flex items-stretch">
-                {/* Left: album art + wave */}
-                <div className="flex flex-col items-center justify-center px-6 border-r gap-2" style={{ borderColor: 'rgba(255,255,255,0.06)', minWidth: 120 }}>
-                  <div onDoubleClick={() => openApp('Spotify')} className="w-16 h-16 rounded-[20px] overflow-hidden border border-white/10 bg-zinc-900 relative shadow-2xl cursor-pointer hover:scale-105 transition-transform">
-                    {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-7 h-7 m-auto opacity-10" />}
-                  </div>
-                  <SoundVisualizer isPlaying={media.isPlaying} />
+                {/* Columna Izquierda: Arte / Vista Previa en Vivo */}
+                <div 
+                  className="flex flex-col items-center justify-center px-6 border-r gap-2 transition-all duration-500" 
+                  style={{ borderColor: 'rgba(255,255,255,0.06)', minWidth: showPreview ? 320 : 140 }}
+                >
+                  <motion.div 
+                    layout
+                    className={clsx(
+                      "rounded-[22px] overflow-hidden border border-white/10 bg-zinc-950 relative shadow-2xl cursor-pointer group",
+                      showPreview ? "w-64 h-36" : "w-20 h-20"
+                    )}
+                    onClick={() => {
+                      if (showPreview) {
+                        const app = media.id === 'system' ? 'Chrome' : media.id;
+                        openApp(app);
+                      } else {
+                        setShowPreview(true);
+                      }
+                    }}
+                  >
+                    {showPreview && stream ? (
+                      <video 
+                        ref={videoRef} 
+                        autoPlay 
+                        playsInline 
+                        muted 
+                        className="w-full h-full object-contain bg-black" 
+                      />
+                    ) : (
+                      <>
+                        {media.thumbnail ? (
+                          <img src={media.thumbnail} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center w-full h-full opacity-10">
+                            <Music className="w-8 h-8" />
+                          </div>
+                        )}
+                      </>
+                    )}
+                    
+                    {/* Botón de alternancia de vista previa */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowPreview(!showPreview); }}
+                      className={clsx(
+                        "absolute top-2 right-2 p-1.5 rounded-lg transition-all backdrop-blur-md",
+                        showPreview ? "bg-red-500/80 text-white" : "bg-black/40 text-white/60 opacity-0 group-hover:opacity-100"
+                      )}
+                    >
+                      {showPreview ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
+                    </button>
+                    
+                    {showPreview && (
+                      <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/95 to-transparent flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+                        <span className="text-[8px] font-black uppercase text-white tracking-widest">En Vivo</span>
+                      </div>
+                    )}
+                  </motion.div>
+                  {!showPreview && <SoundVisualizer isPlaying={media.isPlaying} />}
                 </div>
-                {/* Center: track info + big controls */}
-                <div className="flex-1 flex flex-col items-start justify-center px-6 gap-2">
-                  <span className="text-[15px] font-black truncate w-full tracking-tight leading-tight">{media.title}</span>
-                  <span className="text-[11px] font-bold truncate w-full" style={{ opacity: 0.4 }}>{media.artist}</span>
-                  <div className="flex items-center gap-5 mt-1">
-                    <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="hover:scale-110 transition-all outline-none opacity-40">
+
+                {/* Centro: Info de pista + Controles principales */}
+                <div className="flex-1 flex flex-col items-start justify-center px-8 gap-1.5 min-w-0">
+                  <motion.div layout className="flex flex-col w-full text-left">
+                    <span className="text-[16px] font-black truncate w-full tracking-tighter leading-none">{media.title}</span>
+                    <span className="text-[11px] font-bold truncate w-full mt-1" style={{ opacity: 0.4 }}>{media.artist}</span>
+                  </motion.div>
+                  
+                  <div className="flex items-center gap-6 mt-3">
+                    <button 
+                      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      
+                      className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
+                    >
                       <SkipBack className="w-5 h-5" />
                     </button>
-                    <button      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-11 h-11 rounded-full flex items-center justify-center border outline-none hover:scale-105 transition-all shadow-xl" style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.12)' }}>
+                    <button      
+                      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} 
+                      className="w-12 h-12 rounded-full flex items-center justify-center border outline-none hover:scale-105 active:scale-95 transition-all shadow-xl bg-white/5 border-white/10"
+                    >
                       {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
                     </button>
-                    <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                    <button 
+                      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      
+                      className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
+                    >
                       <SkipForward className="w-5 h-5" />
                     </button>
                   </div>
@@ -1186,7 +1293,11 @@ export const DynamicIsland = () => {
           </AnimatePresence>
         </div>
 
-        <div className="absolute left-full ml-6 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]">
+        <div 
+          className="absolute left-full ml-6 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]"
+          onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
+          onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
+        >
             {/* Timer bubble */}
             <AnimatePresence>
               {showTimerBubble && (

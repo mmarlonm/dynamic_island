@@ -1,4 +1,4 @@
-import { app, ipcMain, screen, BrowserWindow } from "electron";
+import { app, ipcMain, desktopCapturer, screen, BrowserWindow } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
@@ -50,22 +50,20 @@ function createWindow() {
       win.setIgnoreMouseEvents(ignore, { forward: true });
     }
   });
-  let isExpandedMode = false;
   ipcMain.on("set-window-height", (event, h) => {
     if (win && !win.isDestroyed()) {
       win.setSize(windowWidth, Math.max(h, 40), true);
     }
   });
   ipcMain.on("set-is-expanded", (event, expanded) => {
-    isExpandedMode = expanded;
+  });
+  ipcMain.on("set-is-preview", (event, preview) => {
   });
   let currentIslandX = 0;
-  let isSuperPill = false;
   ipcMain.on("update-island-pos", (event, x) => {
     currentIslandX = x;
   });
   ipcMain.on("set-is-super-pill", (event, active) => {
-    isSuperPill = active;
   });
   setInterval(() => {
     if (!win || win.isDestroyed()) return;
@@ -75,14 +73,7 @@ function createWindow() {
     const relX = x - islandCenterX;
     const relY = y - b.y;
     const [winW, winH] = win.getSize();
-    const islandRadius = isExpandedMode ? 350 : isSuperPill ? 40 : 180;
-    const isOverIsland = Math.abs(relX) <= islandRadius;
-    const isOverBubble = !isExpandedMode && !isSuperPill && (relX >= -380 && relX <= -220 || // Left bubble (Call)
-    relX >= 200 && relX <= 270);
-    const heightLimit = isExpandedMode ? winH - 10 : isSuperPill ? 48 : 66;
-    const isInside = (isOverIsland || isOverBubble) && relY >= 0 && relY <= heightLimit;
-    win.setIgnoreMouseEvents(!isInside, { forward: true });
-    win.webContents.send("mouse-proximity", { isNear: isInside, relX, relY });
+    win.webContents.send("mouse-proximity", { relX, relY });
   }, 35);
 }
 const singleInstanceLock = app.requestSingleInstanceLock();
@@ -491,6 +482,29 @@ try {
       win == null ? void 0 : win.webContents.send("notification", { app: appStr, text: msg });
     });
   }, 3e3);
+  ipcMain.handle("get-media-source-id", async (_event, mediaInfo) => {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ["window"],
+        thumbnailSize: { width: 0, height: 0 }
+      });
+      const { title, artist } = mediaInfo;
+      if (!title || title === "Ningún origen de medios") return null;
+      const t = title.toLowerCase();
+      const a = (Array.isArray(artist) ? artist : [artist]).map((x) => x.toLowerCase());
+      let source = sources.find((s) => {
+        const n = s.name.toLowerCase();
+        return n.includes(t) && a.some((x) => n.includes(x));
+      });
+      if (!source) source = sources.find((s) => s.name.toLowerCase().includes(t));
+      if (!source && a.some((x) => x.includes("spotify"))) {
+        source = sources.find((s) => s.name.toLowerCase().includes("spotify"));
+      }
+      return source ? source.id : null;
+    } catch (e) {
+      return null;
+    }
+  });
   ipcMain.handle("get-current-media", async () => {
     if (lastMediaMsg) return lastMediaMsg;
     await new Promise((r) => setTimeout(r, 1200));
