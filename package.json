@@ -11,6 +11,9 @@
     "asarUnpack": [
       "**/*.node"
     ],
+    "extraResources": [
+      "volume.exe"
+    ],
     "win": {
       "target": [
         { "target": "nsis", "arch": ["x64"] },

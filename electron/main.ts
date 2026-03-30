@@ -58,6 +58,8 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     win?.show();
     win?.focus();
+    // Start volume polling once UI is ready
+    pollVol(); 
   });
 
 
@@ -227,13 +229,47 @@ setInterval(() => {
 // Resource Path Helper for Production
 const getResPath = (relPath: string) => {
   if (app.isPackaged) {
-    // In production, files are in the 'resources' folder
     return path.join(process.resourcesPath, relPath);
   }
-  // In development, files are relative to the project root or electron folder
   const devPath = path.join(process.cwd(), relPath);
   if (fs.existsSync(devPath)) return devPath;
   return path.join(__dirname, '..', relPath); 
+};
+
+// ── Volume control Helpers ───────────────────────────────────────────────
+const volExe = getResPath('volume.exe');
+const getVol = (): Promise<number> => new Promise(res => {
+  if (!fs.existsSync(volExe)) return res(-1);
+  exec(`"${volExe}" get`, (err, stdout) => {
+    if (err) return res(-1);
+    const v = parseInt(stdout.trim(), 10);
+    res(isNaN(v) ? -1 : v);
+  });
+});
+
+let isSettingVolume = false;
+let lastVolumeToSet: number | null = null;
+const setVol = async (v: number) => {
+  lastVolumeToSet = v;
+  if (isSettingVolume) return;
+  isSettingVolume = true;
+  while (lastVolumeToSet !== null) {
+    const target = lastVolumeToSet;
+    lastVolumeToSet = null;
+    await new Promise(res => {
+      exec(`"${volExe}" set ${Math.round(target)}`, () => res(null));
+    });
+  }
+  isSettingVolume = false;
+};
+
+const pollVol = async () => {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const v = await getVol();
+    if (v >= 0) win.webContents.send('volume-update', v);
+  } catch (e) {}
+  setTimeout(pollVol, 1500); 
 };
 
 let mediaProc: any = null;
@@ -558,42 +594,9 @@ try {
 
   ipcMain.handle('media-command', (_event, action) => mediaProc?.send(action));
 
-  // ── Volume control (High Performance Native C#) ──────────────────────────
-  const volExe = getResPath('volume.exe');
-  
-  const getVol = (): Promise<number> => new Promise(res => {
-    exec(`"${volExe}" get`, (err, stdout) => {
-      if (err) return res(-1);
-      const v = parseInt(stdout.trim(), 10);
-      res(isNaN(v) ? -1 : v);
-    });
-  });
-
-  let isSettingVolume = false;
-  let lastVolumeToSet: number | null = null;
-  const setVol = async (v: number) => {
-    lastVolumeToSet = v;
-    if (isSettingVolume) return;
-    isSettingVolume = true;
-    while (lastVolumeToSet !== null) {
-      const target = lastVolumeToSet;
-      lastVolumeToSet = null;
-      await new Promise(res => {
-        exec(`"${volExe}" set ${Math.round(target)}`, () => res(null));
-      });
-    }
-    isSettingVolume = false;
-  };
 
   ipcMain.handle('get-volume', async () => await getVol());
   ipcMain.handle('set-volume', (_e, v: number) => { setVol(v); return true; });
-
-  const pollVol = async () => {
-    const v = await getVol();
-    if (v >= 0) win?.webContents.send('volume-update', v);
-    setTimeout(pollVol, 1000); // Polling every 1s
-  };
-  pollVol();
 
   ipcMain.handle('open-app', async (_event, appName: string) => {
     const lower = appName.toLowerCase();
@@ -627,9 +630,11 @@ try {
 
   app.on('before-quit', () => { 
     mediaProc?.kill(); 
-    psMeet?.kill(); 
+    if (typeof psMeet !== 'undefined' && psMeet) (psMeet as any).kill(); 
   });
-} catch (err) { }
+} catch (err) { 
+  console.error('[MAIN] Setup Error:', err);
+}
 
 app.on('window-all-closed', () => {
   win = null;
