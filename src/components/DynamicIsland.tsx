@@ -790,27 +790,71 @@ export const DynamicIsland = () => {
               })()}
             </div>
           ) : (
-            <div className="flex items-center justify-between w-full px-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl overflow-hidden border border-white/5 bg-zinc-900 relative shrink-0 shadow-lg">
-                  {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 m-auto opacity-10" />}
-                  <div className="absolute -bottom-0.5 -right-0.5 bg-[#fc3c44] w-4 h-4 rounded-full flex items-center justify-center border-2 border-black"><Music className="w-2 h-2 text-white" /></div>
+            <div className="flex items-center justify-between w-full px-4 h-full">
+              
+              {/* --- COLLAPSED: MODERNO --- */}
+              {summaryTemplate === 'Moderno' && (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl overflow-hidden border border-white/5 bg-zinc-900 relative shrink-0 shadow-lg">
+                      {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-5 h-5 m-auto opacity-10" />}
+                      <div className="absolute -bottom-0.5 -right-0.5 bg-[#fc3c44] w-4 h-4 rounded-full flex items-center justify-center border-2 border-black"><Music className="w-2 h-2 text-white" /></div>
+                    </div>
+                    <div className="flex flex-col min-w-0 max-w-[130px]">
+                      <span className="text-[12px] font-black truncate tracking-tight text-left">{media.isPlaying ? media.title : t.resumen}</span>
+                      <span className="text-[9px] font-bold truncate uppercase text-left" style={{ opacity: 0.35 }}>{media.isPlaying ? media.artist : 'Sin Actividad'}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
+                      <Cloud className="w-3 h-3 text-blue-400" />
+                      <span className="tracking-tight">{weather.temp}°</span>
+                    </div>
+                    <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter" style={{ opacity: 0.35 }}>
+                      <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                      <span className="text-[7px] uppercase font-mono">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* --- COLLAPSED: MÍNIMO (Just icons and clock) --- */}
+              {summaryTemplate === 'Mínimo' && (
+                <div className="flex-1 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full overflow-hidden border border-white/10 bg-zinc-900 shrink-0">
+                       {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-4 h-4 m-auto opacity-10" />}
+                    </div>
+                    <SoundVisualizer isPlaying={media.isPlaying} />
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[18px] font-black tracking-[-0.05em] text-blue-400">
+                      {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                    </span>
+                    <span className="text-[8px] font-black opacity-20 uppercase tracking-widest">
+                       {currentTime.getHours() >= 12 ? 'PM' : 'AM'}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-col min-w-0 max-w-[130px]">
-                  <span className="text-[12px] font-black truncate tracking-tight text-left">{media.isPlaying ? media.title : t.resumen}</span>
-                  <span className="text-[9px] font-bold truncate uppercase text-left" style={{ opacity: 0.35 }}>{media.isPlaying ? media.artist : 'Sin Actividad'}</span>
+              )}
+
+              {/* --- COLLAPSED: CLÁSICO (Ticker-style text) --- */}
+              {summaryTemplate === 'Clásico' && (
+                <div className="flex-1 flex items-center gap-4 overflow-hidden">
+                  <div className="w-9 h-9 rounded-xl overflow-hidden border border-white/10 bg-zinc-950 shrink-0">
+                     {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-4 h-4 m-auto opacity-10" />}
+                  </div>
+                  <div className="flex-1 flex items-baseline gap-2 overflow-hidden">
+                    <span className="text-[13px] font-black whitespace-nowrap">{media.isPlaying ? media.title : 'Sistema Activo'}</span>
+                    <span className="text-[10px] font-bold opacity-30 truncate uppercase">{media.isPlaying ? `- ${media.artist}` : '- Todo en orden'}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Cloud className="w-3.5 h-3.5 text-blue-400 opacity-50" />
+                    <span className="text-[13px] font-black tabular-nums">{weather.temp}°</span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
-                  <Cloud className="w-3 h-3 text-blue-400" />
-                  <span className="tracking-tight">{weather.temp}°</span>
-                </div>
-                <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter" style={{ opacity: 0.35 }}>
-                  <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
-                  <span className="text-[7px] uppercase font-mono">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
-                </div>
-              </div>
+              )}
+
             </div>
           )}
         </motion.div>
@@ -871,146 +915,196 @@ export const DynamicIsland = () => {
           </div>
 
           <div className="flex-1 overflow-hidden relative">
-            {/* RESUMEN — matches reference: large music left | week calendar center | notif count right */}
+            {/* RESUMEN — supports 3 different templates (diseños) */}
             {activeView === 'Resumen' && (
               <div className="absolute inset-0 flex items-stretch">
-
-                {/* Col 1: Music — large album art + info + controls */}
-                <div className="flex items-center gap-3 px-4 border-r shrink-0" style={{ borderColor: 'rgba(255,255,255,0.06)', width: 260 }}>
-                  {/* Big album art */}
-                  <div onDoubleClick={() => openApp('Spotify')} className="w-[90px] h-[90px] rounded-[22px] overflow-hidden shrink-0 border border-white/10 bg-zinc-900 relative shadow-2xl cursor-pointer hover:scale-105 transition-transform">
-                    {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-9 h-9 m-auto opacity-10" />}
-                    <div className="absolute -bottom-1 -right-1 bg-[#fc3c44] w-7 h-7 rounded-full flex items-center justify-center border-2 border-black shadow-lg"><Music className="w-3 h-3 text-white" /></div>
-                  </div>
-                  {/* Track info + controls vertical */}
-                  <div className="flex flex-col min-w-0 flex-1 text-left gap-0.5">
-                    <span className="text-[14px] font-black truncate tracking-tight leading-tight">{media.title}</span>
-                    <span className="text-[10px] font-bold truncate" style={{ opacity: 0.45 }}>{media.artist}</span>
-                    <div className="flex items-center gap-3 mt-2">
-                      <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="hover:scale-110 transition-all outline-none opacity-40">
-                        <SkipBack className="w-4 h-4" />
-                      </button>
-                      <button      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-7 h-7 hover:scale-110 transition-all outline-none">
-                        {media.isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
-                      </button>
-                      <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="hover:scale-110 transition-all outline-none opacity-40">
-                        <SkipForward className="w-4 h-4" />
-                      </button>
-                    </div>
-                    {/* Compact volume slider */}
-                    <div className="flex items-center gap-1.5 mt-2 w-full">
-                      <Volume2 className="w-3 h-3 shrink-0" style={{ opacity: 0.3 }} />
-                      <input type="range" min={0} max={100} value={volume}
-                        onChange={e => setVol(Number(e.target.value))}
-                        className="flex-1 h-1 rounded-full outline-none cursor-pointer"
-                        style={{ accentColor: '#3b82f6' }}
-                      />
-                      <span className="text-[8px] font-black tabular-nums w-5 text-right" style={{ opacity: 0.3 }}>{volume}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Col 2: Week calendar — selectable days */}
-                {(() => {
-                  const today = currentTime;
-                  const targetDate = new Date(today);
-                  targetDate.setDate(targetDate.getDate() + (calendarOffset * 7));
-                  
-                  const todayNum = today.getDate();
-                  const todayMonth = today.getMonth();
-                  
-                  const days = Array.from({ length: 7 }, (_, i) => {
-                    const d = new Date(targetDate);
-                    d.setDate(targetDate.getDate() - targetDate.getDay() + i);
-                    return d;
-                  });
-                  const dayAbbr = ['S','M','T','W','T','F','S'];
-                  const sel = selectedDay;
-                  
-                  // For the title: show the month of the current view
-                  const viewMonth = targetDate.toLocaleString(lang === 'zh' ? 'zh-CN' : lang, { month: 'short' });
-                  
-                  return (
-                    <div className="flex-1 flex flex-col justify-center px-5 border-r" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-baseline gap-2 font-black">
-                          <span className="text-[22px] tracking-tighter leading-none" style={{ opacity: 0.9 }}>{viewMonth}</span>
-                          <span className="text-[12px] text-blue-400 font-mono font-black">{calendarOffset === 0 ? todayNum : ''}</span>
-                        </div>
-                        <div className="flex items-center gap-1 no-drag pointer-events-auto">
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setCalendarOffset(p => p - 1); }}
-                            className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
-                          >
-                            <ChevronLeft className="w-3.5 h-3.5 text-blue-400 opacity-60" />
+                
+                {/* --- TEMPLATE: MODERNO (Existing 3-column Layout) --- */}
+                {summaryTemplate === 'Moderno' && (
+                  <>
+                    {/* Col 1: Music — large album art + info + controls */}
+                    <div className="flex items-center gap-3 px-4 border-r shrink-0" style={{ borderColor: 'rgba(255,255,255,0.06)', width: 260 }}>
+                      <div onDoubleClick={() => openApp('Spotify')} className="w-[90px] h-[90px] rounded-[22px] overflow-hidden shrink-0 border border-white/10 bg-zinc-900 relative shadow-2xl cursor-pointer hover:scale-105 transition-transform">
+                        {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-9 h-9 m-auto opacity-10" />}
+                        <div className="absolute -bottom-1 -right-1 bg-[#fc3c44] w-7 h-7 rounded-full flex items-center justify-center border-2 border-black shadow-lg"><Music className="w-3 h-3 text-white" /></div>
+                      </div>
+                      <div className="flex flex-col min-w-0 flex-1 text-left gap-0.5">
+                        <span className="text-[14px] font-black truncate tracking-tight leading-tight">{media.title}</span>
+                        <span className="text-[10px] font-bold truncate" style={{ opacity: 0.45 }}>{media.artist}</span>
+                        <div className="flex items-center gap-3 mt-2">
+                          <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                            <SkipBack className="w-4 h-4" />
                           </button>
-                          {calendarOffset !== 0 && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); setCalendarOffset(0); }}
-                              className="px-1.5 py-0.5 rounded text-[7px] font-black uppercase bg-blue-500/20 text-blue-400"
-                            >
-                              Hoy
-                            </button>
-                          )}
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setCalendarOffset(p => p + 1); }}
-                            className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
-                          >
-                            <ChevronRight className="w-3.5 h-3.5 text-blue-400 opacity-60" />
+                          <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-7 h-7 hover:scale-110 transition-all outline-none">
+                            {media.isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
+                          </button>
+                          <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                            <SkipForward className="w-4 h-4" />
                           </button>
                         </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        {days.map((d, i) => {
-                          const isToday   = d.getDate() === todayNum && d.getMonth() === todayMonth && calendarOffset === 0;
-                          const isSel     = sel && d.getDate() === sel.getDate() && d.getMonth() === sel.getMonth();
-                          const isWeekend = i === 0 || i === 6;
-                          return (
-                            <button
-                              key={i}
-                              onClick={(e) => { e.stopPropagation(); setSelectedDay(isSel ? null : new Date(d)); }}
-                              className="flex flex-col items-center gap-0.5 outline-none no-drag pointer-events-auto"
-                            >
-                              <span className="text-[7.5px] font-black uppercase" style={{ opacity: isToday ? 1 : 0.3, color: isWeekend && !isToday ? 'rgba(255,100,100,0.7)' : 'inherit' }}>{dayAbbr[i]}</span>
-                              <div
-                                className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black transition-all"
-                                style={{
-                                  background: isToday ? '#3b82f6' : isSel ? 'rgba(255,255,255,0.15)' : 'transparent',
-                                  color: isToday ? '#fff' : 'inherit',
-                                  opacity: isToday || isSel ? 1 : 0.4,
-                                  boxShadow: isToday ? '0 0 10px rgba(59,130,246,0.5)' : 'none',
-                                }}
-                              >
-                                {d.getDate()}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div className="flex items-center gap-1 mt-2 text-[8px] font-black uppercase tracking-wider" style={{ opacity: 0.18 }}>
-                        <CheckSquare className="w-2.5 h-2.5 text-emerald-400" />
-                        {sel ? sel.toLocaleDateString(lang, { weekday: 'short', day: 'numeric' }) : t.empty}
+                        <div className="flex items-center gap-1.5 mt-2 w-full">
+                          <Volume2 className="w-3 h-3 shrink-0" style={{ opacity: 0.3 }} />
+                          <input type="range" min={0} max={100} value={volume}
+                            onChange={e => setVol(Number(e.target.value))}
+                            className="flex-1 h-1 rounded-full outline-none cursor-pointer"
+                            style={{ accentColor: '#3b82f6' }}
+                          />
+                          <span className="text-[8px] font-black tabular-nums w-5 text-right" style={{ opacity: 0.3 }}>{volume}</span>
+                        </div>
                       </div>
                     </div>
-                  );
-                })()}
 
-                {/* Col 3: Notification count badge */}
-                <div className="flex flex-col items-center justify-center px-5 gap-1.5 shrink-0" style={{ width: 90 }}>
-                  <div
-                    className="w-14 h-14 rounded-full flex items-center justify-center relative cursor-pointer hover:scale-105 transition-transform"
-                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
-                    onClick={() => setActiveView('Notificación')}
-                  >
-                    <Bell className="w-6 h-6" style={{ opacity: 0.5 }} />
-                    {notifications.length > 0 && (
-                      <div className="absolute -top-1 -right-1 bg-blue-500 text-white text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-lg" style={{ boxShadow: '0 0 10px rgba(59,130,246,0.6)' }}>
-                        {notifications.length > 9 ? '9+' : notifications.length}
+                    {/* Col 2: Week calendar */}
+                    {(() => {
+                      const today = currentTime;
+                      const targetDate = new Date(today);
+                      targetDate.setDate(targetDate.getDate() + (calendarOffset * 7));
+                      const todayNum = today.getDate();
+                      const todayMonth = today.getMonth();
+                      const days = Array.from({ length: 7 }, (_, i) => {
+                        const d = new Date(targetDate);
+                        d.setDate(targetDate.getDate() - targetDate.getDay() + i);
+                        return d;
+                      });
+                      const dayAbbr = ['S','M','T','W','T','F','S'];
+                      const sel = selectedDay;
+                      const viewMonth = targetDate.toLocaleString(lang === 'zh' ? 'zh-CN' : lang, { month: 'short' });
+                      
+                      return (
+                        <div className="flex-1 flex flex-col justify-center px-5 border-r" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-baseline gap-2 font-black">
+                              <span className="text-[22px] tracking-tighter leading-none" style={{ opacity: 0.9 }}>{viewMonth}</span>
+                              <span className="text-[12px] text-blue-400 font-mono font-black">{calendarOffset === 0 ? todayNum : ''}</span>
+                            </div>
+                            <div className="flex items-center gap-1 no-drag pointer-events-auto">
+                              <button onClick={(e) => { e.stopPropagation(); setCalendarOffset(p => p - 1); }} className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
+                                <ChevronLeft className="w-3.5 h-3.5 text-blue-400 opacity-60" />
+                              </button>
+                              {calendarOffset !== 0 && (
+                                <button onClick={(e) => { e.stopPropagation(); setCalendarOffset(0); }} className="px-1.5 py-0.5 rounded text-[7px] font-black uppercase bg-blue-500/20 text-blue-400">Hoy</button>
+                              )}
+                              <button onClick={(e) => { e.stopPropagation(); setCalendarOffset(p => p + 1); }} className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
+                                <ChevronRight className="w-3.5 h-3.5 text-blue-400 opacity-60" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            {days.map((d, i) => {
+                              const isToday   = d.getDate() === todayNum && d.getMonth() === todayMonth && calendarOffset === 0;
+                              const isSel     = sel && d.getDate() === sel.getDate() && d.getMonth() === sel.getMonth();
+                              const isWeekend = i === 0 || i === 6;
+                              return (
+                                <button key={i} onClick={(e) => { e.stopPropagation(); setSelectedDay(isSel ? null : new Date(d)); }} className="flex flex-col items-center gap-0.5 outline-none no-drag pointer-events-auto">
+                                  <span className="text-[7.5px] font-black uppercase" style={{ opacity: isToday ? 1 : 0.3, color: isWeekend && !isToday ? 'rgba(255,100,100,0.7)' : 'inherit' }}>{dayAbbr[i]}</span>
+                                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black transition-all" style={{ background: isToday ? '#3b82f6' : isSel ? 'rgba(255,255,255,0.15)' : 'transparent', color: isToday ? '#fff' : 'inherit', opacity: isToday || isSel ? 1 : 0.4, boxShadow: isToday ? '0 0 10px rgba(59,130,246,0.5)' : 'none' }}>
+                                    {d.getDate()}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="flex items-center gap-1 mt-2 text-[8px] font-black uppercase tracking-wider" style={{ opacity: 0.18 }}>
+                            <CheckSquare className="w-2.5 h-2.5 text-emerald-400" />
+                            {sel ? sel.toLocaleDateString(lang, { weekday: 'short', day: 'numeric' }) : t.empty}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Col 3: Notification count badge */}
+                    <div className="flex flex-col items-center justify-center px-5 gap-1.5 shrink-0" style={{ width: 90 }}>
+                      <div className="w-14 h-14 rounded-full flex items-center justify-center relative cursor-pointer hover:scale-105 transition-transform" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} onClick={() => setActiveView('Notificación')}>
+                        <Bell className="w-6 h-6" style={{ opacity: 0.5 }} />
+                        {notifications.length > 0 && (
+                          <div className="absolute -top-1 -right-1 bg-blue-500 text-white text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-lg" style={{ boxShadow: '0 0 10px rgba(59,130,246,0.6)' }}>
+                            {notifications.length > 9 ? '9+' : notifications.length}
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <span className="text-[7.5px] font-black uppercase tracking-widest" style={{ opacity: 0.25 }}>Alertas</span>
+                    </div>
+                  </>
+                )}
+
+                {/* --- TEMPLATE: MÍNIMO (Sleek, minimalist with big clock) --- */}
+                {summaryTemplate === 'Mínimo' && (
+                   <div className="flex-1 flex items-center px-12 gap-12">
+                     {/* Left: Compact Music Info */}
+                     <div className="flex items-center gap-4 min-w-0 max-w-[40%]">
+                       <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="w-16 h-16 rounded-[20px] overflow-hidden shrink-0 border border-white/10 bg-zinc-900 relative shadow-xl">
+                         {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-6 h-6 m-auto opacity-10" />}
+                       </motion.div>
+                       <div className="flex flex-col min-w-0 text-left">
+                         <span className="text-[15px] font-black truncate tracking-tight">{media.title}</span>
+                         <span className="text-[10px] font-bold opacity-30 truncate uppercase tracking-widest">{media.artist}</span>
+                         <div className="flex items-center gap-4 mt-2">
+                            <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="opacity-60 hover:opacity-100 transition-opacity">
+                              {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
+                            </button>
+                            <SoundVisualizer isPlaying={media.isPlaying} />
+                         </div>
+                       </div>
+                     </div>
+
+                     {/* Divider (Gradient line) */}
+                     <div className="w-[1px] h-14 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+
+                     {/* Right: Large Elegant Clock & Date */}
+                     <div className="flex-1 flex flex-col items-start">
+                        <div className="flex items-baseline gap-3">
+                          <span className="text-[42px] font-black tracking-[-0.05em] leading-none text-blue-400">
+                             {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                          </span>
+                          <span className="text-[12px] font-black opacity-30 uppercase tracking-[0.3em]">
+                             {currentTime.getHours() >= 12 ? 'PM' : 'AM'}
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-black uppercase tracking-[0.5em] text-zinc-500 mt-1 pl-1">
+                           {currentTime.toLocaleDateString(lang === 'zh' ? 'zh-CN' : lang, { weekday: 'long', day: 'numeric', month: 'long' })}
+                        </span>
+                     </div>
+                   </div>
+                )}
+
+                {/* --- TEMPLATE: CLÁSICO (Notification-style row) --- */}
+                {summaryTemplate === 'Clásico' && (
+                  <div className="flex-1 flex items-center px-10 gap-8">
+                    {/* Art on the left */}
+                    <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="w-24 h-24 rounded-[28px] overflow-hidden shrink-0 border border-white/10 bg-zinc-900 shadow-2xl">
+                       {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-10 h-10 m-auto opacity-10" />}
+                    </motion.div>
+                    
+                    {/* Large info center-right */}
+                    <div className="flex-1 flex flex-col items-start gap-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full uppercase tracking-tighter">Música</span>
+                        <span className="text-[9px] font-black opacity-20 uppercase tracking-[0.2em]">{media.isPlaying ? 'Reproduciendo' : 'Pausado'}</span>
+                      </div>
+                      <span className="text-[24px] font-black tracking-tight leading-tight truncate w-full text-left">{media.title}</span>
+                      <span className="text-[14px] font-bold opacity-40 leading-none truncate w-full text-left">{media.artist}</span>
+                      
+                      <div className="flex items-center gap-8 mt-4">
+                        <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')} className="opacity-30 hover:opacity-100 transition-all hover:scale-110">
+                          <SkipBack className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center hover:bg-white/5 transition-all hover:scale-105 active:scale-95 shadow-lg">
+                          {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+                        </button>
+                        <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')} className="opacity-30 hover:opacity-100 transition-all hover:scale-110">
+                          <SkipForward className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Right side: weather summary */}
+                    <div className="flex flex-col items-end gap-1 px-4 border-l border-white/5">
+                       <span className="text-[28px] font-black tracking-tighter">{weather.temp}°</span>
+                       <span className="text-[8px] font-black uppercase tracking-[0.2em] opacity-30">{weather.condition}</span>
+                       <Cloud className="w-6 h-6 text-blue-400 mt-1" />
+                    </div>
                   </div>
-                  <span className="text-[7.5px] font-black uppercase tracking-widest" style={{ opacity: 0.25 }}>Alertas</span>
-                </div>
+                )}
               </div>
             )}
 
