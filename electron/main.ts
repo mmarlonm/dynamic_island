@@ -27,6 +27,8 @@ let proximityInterval: NodeJS.Timeout | null = null;
 let systemUpdateInterval: NodeJS.Timeout | null = null;
 let notifInterval: NodeJS.Timeout | null = null;
 let volInterval: NodeJS.Timeout | null = null;
+let weatherInterval: NodeJS.Timeout | null = null;
+
 
 function safeSend(w: BrowserWindow | null, channel: string, ...args: any[]) {
   if (!w || w.isDestroyed()) return;
@@ -63,6 +65,8 @@ function createWindow() {
     resizable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
     },
   })
 
@@ -86,8 +90,33 @@ function createWindow() {
     if (systemUpdateInterval) clearInterval(systemUpdateInterval);
     if (notifInterval) clearInterval(notifInterval);
     if (volInterval) clearTimeout(volInterval);
+    if (weatherInterval) clearInterval(weatherInterval);
     win = null;
   });
+
+  const fetchWeather = () => {
+    if (!win || win.isDestroyed()) return;
+    try {
+      // Get weather via wttr.in JSON format
+      const cmd = `powershell -Command "Invoke-RestMethod -Uri 'https://wttr.in?format=j1' -ErrorAction SilentlyContinue | ConvertTo-Json -Depth 5"`;
+      exec(cmd, (err, stdout) => {
+        if (err || !stdout) return;
+        try {
+          const data = JSON.parse(stdout);
+          const current = data.current_condition[0];
+          safeSend(win, 'weather-update', { 
+            temp: current.temp_C, 
+            condition: current.weatherDesc[0].value 
+          });
+        } catch (e) {}
+      });
+    } catch (e) {}
+  };
+
+  // Poll weather every 20 minutes
+  fetchWeather();
+  weatherInterval = setInterval(fetchWeather, 20 * 60 * 1000);
+
 
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore) => {

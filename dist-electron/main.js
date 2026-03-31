@@ -18,6 +18,7 @@ let proximityInterval = null;
 let systemUpdateInterval = null;
 let notifInterval = null;
 let volInterval = null;
+let weatherInterval = null;
 function safeSend(w, channel, ...args) {
   if (!w || w.isDestroyed()) return;
   try {
@@ -46,7 +47,9 @@ function createWindow() {
     hasShadow: false,
     resizable: false,
     webPreferences: {
-      preload: path.join(__dirname$1, "preload.js")
+      preload: path.join(__dirname$1, "preload.js"),
+      backgroundThrottling: false,
+      autoplayPolicy: "no-user-gesture-required"
     }
   });
   win.setIgnoreMouseEvents(true, { forward: true });
@@ -63,8 +66,30 @@ function createWindow() {
     if (systemUpdateInterval) clearInterval(systemUpdateInterval);
     if (notifInterval) clearInterval(notifInterval);
     if (volInterval) clearTimeout(volInterval);
+    if (weatherInterval) clearInterval(weatherInterval);
     win = null;
   });
+  const fetchWeather = () => {
+    if (!win || win.isDestroyed()) return;
+    try {
+      const cmd = `powershell -Command "Invoke-RestMethod -Uri 'https://wttr.in?format=j1' -ErrorAction SilentlyContinue | ConvertTo-Json -Depth 5"`;
+      exec(cmd, (err, stdout) => {
+        if (err || !stdout) return;
+        try {
+          const data = JSON.parse(stdout);
+          const current = data.current_condition[0];
+          safeSend(win, "weather-update", {
+            temp: current.temp_C,
+            condition: current.weatherDesc[0].value
+          });
+        } catch (e) {
+        }
+      });
+    } catch (e) {
+    }
+  };
+  fetchWeather();
+  weatherInterval = setInterval(fetchWeather, 20 * 60 * 1e3);
   ipcMain.on("set-ignore-mouse-events", (event, ignore) => {
     if (win && !win.isDestroyed()) {
       win.setIgnoreMouseEvents(ignore, { forward: true });

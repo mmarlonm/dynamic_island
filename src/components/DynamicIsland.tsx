@@ -9,7 +9,7 @@ import {
 import clsx from 'clsx';
 
 // ── Modern Reactive Sound Visualizer (5-bar Equalizer) ──────────────────────
-const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => {
+const SoundVisualizer = ({ isPlaying, onIntensity }: { isPlaying: boolean; onIntensity?: (v: number) => void }) => {
   const [bars, setBars] = useState([4, 4, 4, 4, 4]); // Heights (1-16px)
   const analyserRef = useRef<AnalyserNode | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -34,6 +34,7 @@ const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => {
 
       if (!isPlaying) {
         setBars([4, 4, 4, 4, 4]);
+        if (onIntensity) onIntensity(0);
         return;
       }
 
@@ -44,8 +45,6 @@ const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => {
           const sourceId = await ipc?.invoke('get-system-audio-id');
           if (!sourceId || !active) return;
 
-          // Constraints: Chromium on Windows is more robust when both video and audio are requested
-          // for the same sourceId, even if we only use audio.
           const constraints = {
             audio: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } },
             video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } }
@@ -58,7 +57,6 @@ const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => {
           }
           
           streamRef.current = stream;
-          // Stop video immediately to save resources
           stream.getVideoTracks().forEach((t: MediaStreamTrack) => t.stop());
 
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -73,6 +71,15 @@ const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => {
             const data = new Uint8Array(ans.frequencyBinCount);
             ans.getByteFrequencyData(data);
             
+            if (onIntensity) {
+              const bassAvg = (data[0] + data[1] + data[2]) / 3;
+              const midAvg = (data[3] + data[4] + data[5]) / 3;
+              // Higher gain: 110 instead of 140 for more sensitivity
+              const intensity = (bassAvg * 0.75 + midAvg * 0.25) / 110; 
+              onIntensity(Math.min(1, intensity)); 
+            }
+
+
             const newBars = [
               Math.max(4, (data[1] / 255) * 16),
               Math.max(4, (data[3] / 255) * 16),
@@ -88,7 +95,9 @@ const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => {
           console.warn('[VISUALIZER] Audio capture failed:', e);
           const sim = () => {
             if (!active) return;
-            setBars(bars.map(() => Math.random() * 12 + 4));
+            const b = bars.map(() => Math.random() * 12 + 4);
+            setBars(b);
+            if (onIntensity) onIntensity(Math.random() * 0.3);
             rafRef.current = requestAnimationFrame(sim);
           };
           sim();
@@ -103,6 +112,7 @@ const SoundVisualizer = ({ isPlaying }: { isPlaying: boolean }) => {
       stopStream();
     };
   }, [isPlaying]);
+
 
   return (
     <div className="w-10 h-4 flex items-center justify-center gap-[3px] pointer-events-none px-1 overflow-hidden" 
@@ -379,10 +389,12 @@ export const DynamicIsland = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '', id: '' });
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
-  const [systemInfo, setSystemInfo]   = useState({ cpu: 12, ram: 45, net: 2.1 });
-  const [weather, setWeather]         = useState({ temp: '22' });
-  const [volume, setVolume] = useState(50);
+  const [systemInfo, setSystemInfo]   = useState({ cpu: 12, ram: 45, net: 2.1, temp: 42 });
+  const [musicIntensity, setMusicIntensity] = useState(0);
+  const [weather, setWeather]         = useState({ temp: '22', condition: 'Clear' });
+  const [volume, setVolume]           = useState(50);
   const [meeting, setMeeting] = useState({ isActive: false, app: '', device: '', micActive: false, camActive: false });
+
   // 0-100 system volume
 
   // Timer state
@@ -561,7 +573,9 @@ export const DynamicIsland = () => {
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     if (!ipc) return;
-    const h = showSettings ? 600 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 480 : 220) : 80;
+    const h = showSettings ? 600 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 480 : 220) : 120;
+
+
     ipc.send('set-window-height', h);
     // Robust expansion report: true ONLY if actually expanded (hovered/pinned)
     const effectivelyExpanded = isExpanded || showSettings;
@@ -602,6 +616,10 @@ export const DynamicIsland = () => {
 
   return (
     <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999]">
+      {/* Active analyzer layer: 1x1 pixel but "visible" to bypass background capture throttling */}
+      <div className="absolute top-0 left-0 w-[1px] h-[1px] opacity-[0.01] pointer-events-none overflow-hidden z-[-1]">
+        <SoundVisualizer isPlaying={media.isPlaying} onIntensity={setMusicIntensity} />
+      </div>
       <div className="relative flex items-start justify-center">
         {/* ── Island body ── */}
         <motion.div
@@ -665,45 +683,73 @@ export const DynamicIsland = () => {
         {/* UNIFIED BACKGROUND SVG LAYER — Production Fix & Subtle Drop */}
         <div className="absolute inset-0 pointer-events-none z-[-1] overflow-visible" 
              style={{ filter: isLightMode ? 'drop-shadow(0 20px 40px rgba(0,0,0,0.12))' : 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }}>
-          <svg width="100%" height="100%" shapeRendering="geometricPrecision" style={{ display: 'block' }}>
-            <motion.path
-               d={(() => {
-                 const isLarge = showSettings || isExpanded;
-                 const isPreview = showPreview && activeView === 'Multimedia';
-                 const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : 680) : (superPill ? 72 : 360));
-                 const h = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 420 : 180) : (superPill ? 42 : 66);
-                 const totalW = w + 68;
-                 
-                 if (superPill && !isLarge) {
-                   // SUBTLE DROP — Only when NOT expanded
-                   const neck = 42; 
-                   return `M 0 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW} 0 Z`;
-                 } else {
-                   // STANDARD PILL — Restoration of 34px Arcs
-                   const r = 34;
-                   return `M 0 0 A ${r} ${r} 0 0 1 ${r} ${r} V ${h-r} A ${r} ${r} 0 0 0 ${r*2} ${h} H ${totalW-(r*2)} A ${r} ${r} 0 0 0 ${totalW-r} ${h-r} V ${r} A ${r} ${r} 0 0 1 ${totalW} 0 Z`;
-                 }
-               })()}
-               animate={{ d: (() => {
-                 const isLarge = showSettings || isExpanded;
-                 const isPreview = showPreview && activeView === 'Multimedia';
-                 const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : 680) : (superPill ? 72 : 360));
-                 const h = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 420 : 180) : (superPill ? 42 : 66);
-                 const totalW = w + 68;
-                 
-                 if (superPill && !isLarge) {
-                   const neck = 42; 
-                   return `M 0 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW} 0 Z`;
-                 } else {
-                   const r = 34;
-                   return `M 0 0 A ${r} ${r} 0 0 1 ${r} ${r} V ${h-r} A ${r} ${r} 0 0 0 ${r*2} ${h} H ${totalW-(r*2)} A ${r} ${r} 0 0 0 ${totalW-r} ${h-r} V ${r} A ${r} ${r} 0 0 1 ${totalW} 0 Z`;
-                 }
-               })() }}
-               fill={isLightMode ? '#fdfdfd' : '#0a0a0a'}
-               stroke={isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.08)'}
-               strokeWidth="0.5"
-               transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-            />
+          <svg width="100%" height="100%" shapeRendering="geometricPrecision" style={{ display: 'block', overflow: 'visible' }}>
+
+             <motion.path
+                initial={false}
+                animate={{ d: (() => {
+                  const isLarge = showSettings || isExpanded;
+                  const isPreview = showPreview && activeView === 'Multimedia';
+                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : 680) : (superPill ? 72 : 360));
+                  const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 420 : 180) : (superPill ? 42 : 66);
+                  const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
+                  const totalW = w + 68;
+                  
+                  if (superPill && !isLarge) {
+                    const neck = 42; 
+                    return `M 0 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW} 0 Z`;
+                  } else {
+                    const r = 34;
+                    return `M 0 0 A ${r} ${r} 0 0 1 ${r} ${r} V ${h-r} A ${r} ${r} 0 0 0 ${r*2} ${h} H ${totalW-(r*2)} A ${r} ${r} 0 0 0 ${totalW-r} ${h-r} V ${r} A ${r} ${r} 0 0 1 ${totalW} 0 Z`;
+                  }
+                })() }}
+                fill={isLightMode ? '#fdfdfd' : '#0a0a0a'}
+                stroke={isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.08)'}
+                strokeWidth="0.5"
+                transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+             />
+
+             {/* Modern Rhythm Contour Effect */}
+             <AnimatePresence>
+               {superPill && !isExpanded && media.isPlaying && (
+                 <motion.path
+                   initial={{ pathLength: 0, opacity: 0 }}
+                   animate={{ 
+                     d: (() => {
+                       const w = 72;
+                       const h = 42 + (musicIntensity || 0) * 4;
+                       const totalW = w + 68;
+                       const neck = 42;
+                       return `M 2 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW-2} 0`;
+                     })(),
+                     pathLength: 1, 
+                     opacity: 0.3 + (musicIntensity || 0) * 0.4,
+                     strokeWidth: 0.8 + (musicIntensity || 0) * 1,
+                   }}
+                   style={{ 
+                     filter: `drop-shadow(0 0 ${2 + (musicIntensity || 0) * 6}px rgba(139, 92, 246, 0.4))` 
+                   }}
+                   exit={{ opacity: 0 }}
+                   fill="none"
+                   stroke="url(#modernRhythmGradient)"
+                   strokeLinecap="round"
+                 />
+               )}
+             </AnimatePresence>
+
+             <defs>
+               <linearGradient id="modernRhythmGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                 <stop offset="0%" stopColor="#3b82f6" />
+                 <stop offset="50%" stopColor="#8b5cf6" />
+                 <stop offset="100%" stopColor="#ec4899" />
+                 <animate 
+                   attributeName="x1" 
+                   values="0%;100%;0%" 
+                   dur="3s" 
+                   repeatCount="indefinite" 
+                 />
+               </linearGradient>
+             </defs>
           </svg>
           <div className="absolute inset-0 z-[-2] rounded-[34px]" style={{ backdropFilter: 'blur(80px)', background: 'transparent' }} />
         </div>
@@ -756,7 +802,6 @@ export const DynamicIsland = () => {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <SoundVisualizer isPlaying={media.isPlaying} />
                 <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
                   <Cloud className="w-3 h-3 text-blue-400" />
                   <span className="tracking-tight">{weather.temp}°</span>
@@ -1374,14 +1419,6 @@ export const DynamicIsland = () => {
                           {l}
                         </button>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* Version badge */}
-                  <div className="mt-auto pt-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[9px] font-black uppercase tracking-widest" style={{ opacity: 0.2 }}>Dynamic Island Win</span>
-                      <span className="text-[9px] font-bold" style={{ opacity: 0.15 }}>v2.5.0 · Unified Architecture</span>
                     </div>
                   </div>
                 </div>
