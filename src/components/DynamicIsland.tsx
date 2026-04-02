@@ -806,6 +806,7 @@ export const DynamicIsland = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
+                    {media.isPlaying && <SoundVisualizer isPlaying={media.isPlaying} />}
                     <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
                       <Cloud className="w-3 h-3 text-blue-400" />
                       <span className="tracking-tight">{weather.temp}°</span>
@@ -849,6 +850,7 @@ export const DynamicIsland = () => {
                     <span className="text-[10px] font-bold opacity-30 truncate uppercase">{media.isPlaying ? `- ${media.artist}` : '- Todo en orden'}</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {media.isPlaying && <SoundVisualizer isPlaying={media.isPlaying} />}
                     <Cloud className="w-3.5 h-3.5 text-blue-400 opacity-50" />
                     <span className="text-[13px] font-black tabular-nums">{weather.temp}°</span>
                   </div>
