@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import { fork, exec, spawn } from 'node:child_process'
 import os from 'node:os'
+import https from 'node:https'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -28,8 +29,7 @@ let systemUpdateInterval: NodeJS.Timeout | null = null;
 let notifInterval: NodeJS.Timeout | null = null;
 let volInterval: NodeJS.Timeout | null = null;
 let weatherInterval: NodeJS.Timeout | null = null;
-
-
+let weatherLocation = '';
 function safeSend(w: BrowserWindow | null, channel: string, ...args: any[]) {
   if (!w || w.isDestroyed()) return;
   try {
@@ -46,10 +46,48 @@ function safeSend(w: BrowserWindow | null, channel: string, ...args: any[]) {
   }
 }
 
+const fetchWeather = () => {
+  if (!win || win.isDestroyed()) return;
+  const url = weatherLocation 
+    ? `https://wttr.in/${encodeURIComponent(weatherLocation)}?format=j1` 
+    : 'https://wttr.in?format=j1';
+  
+  https.get(url, (res: any) => {
+    let data = '';
+    res.on('data', (chunk: any) => data += chunk);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        const current = json.current_condition[0];
+        const area = json.nearest_area?.[0];
+        const city = area?.areaName?.[0]?.value || 'Local';
+        
+        safeSend(win, 'weather-update', { 
+          temp: current.temp_C, 
+          condition: current.weatherDesc[0].value,
+          city: city 
+        });
+      } catch (e) {}
+    });
+    }).on('error', () => {});
+};
+
+// Global IPC Handlers (Development-safe registration)
+ipcMain.handle('get-system-audio-id', async () => {
+  const sources = await desktopCapturer.getSources({ types: ['screen'] });
+  return sources[0]?.id; // System audio is typically shared on Windows screen sources
+});
+
+ipcMain.removeAllListeners('set-weather-location');
+ipcMain.on('set-weather-location', (_e, loc: string) => {
+  weatherLocation = loc || '';
+  fetchWeather();
+});
+
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width, height } = primaryDisplay.bounds
-  const windowWidth = width
+  const windowWidth = width 
   const windowHeight = 600
 
   win = new BrowserWindow({
@@ -94,28 +132,10 @@ function createWindow() {
     win = null;
   });
 
-  const fetchWeather = () => {
-    if (!win || win.isDestroyed()) return;
-    try {
-      // Get weather via wttr.in JSON format
-      const cmd = `powershell -Command "Invoke-RestMethod -Uri 'https://wttr.in?format=j1' -ErrorAction SilentlyContinue | ConvertTo-Json -Depth 5"`;
-      exec(cmd, (err, stdout) => {
-        if (err || !stdout) return;
-        try {
-          const data = JSON.parse(stdout);
-          const current = data.current_condition[0];
-          safeSend(win, 'weather-update', { 
-            temp: current.temp_C, 
-            condition: current.weatherDesc[0].value 
-          });
-        } catch (e) {}
-      });
-    } catch (e) {}
-  };
-
   // Poll weather every 20 minutes
   fetchWeather();
   weatherInterval = setInterval(fetchWeather, 20 * 60 * 1000);
+
 
 
 
@@ -155,10 +175,6 @@ function createWindow() {
     isSuperPill = active;
   });
 
-  ipcMain.handle('get-system-audio-id', async () => {
-    const sources = await desktopCapturer.getSources({ types: ['screen'] });
-    return sources[0]?.id; // System audio is typically shared on Windows screen sources
-  });
 
   proximityInterval = setInterval(() => {
     if (!win || win.isDestroyed()) return;
@@ -685,6 +701,8 @@ try {
   ipcMain.handle('get-volume', async () => await getVol());
   ipcMain.handle('set-volume', (_e, v: number) => { setVol(v); return true; });
 
+  // ... moved out ...
+
   ipcMain.handle('open-app', async (_event, appName: string) => {
     const lower = appName.toLowerCase();
     if (lower.includes('chrome')) exec('start chrome');
@@ -714,6 +732,8 @@ try {
        else await sendKeyToMeeting('^+h');
     }
   });
+
+  // ...
 
   app.on('before-quit', () => { 
     mediaProc?.kill(); 

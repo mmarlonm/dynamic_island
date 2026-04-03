@@ -38,6 +38,8 @@ try {
         }
       });
     }
+  }, {
+    logLevelDirective: "error"
   });
   np.subscribe().catch((err) => {
   });

@@ -1,9 +1,10 @@
-import { app, ipcMain, desktopCapturer, screen, BrowserWindow } from "electron";
+import { ipcMain, desktopCapturer, app, screen, BrowserWindow } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import { fork, spawn, exec } from "node:child_process";
 import os from "node:os";
+import https from "node:https";
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
@@ -19,6 +20,7 @@ let systemUpdateInterval = null;
 let notifInterval = null;
 let volInterval = null;
 let weatherInterval = null;
+let weatherLocation = "";
 function safeSend(w, channel, ...args) {
   if (!w || w.isDestroyed()) return;
   try {
@@ -30,6 +32,40 @@ function safeSend(w, channel, ...args) {
   } catch (e) {
   }
 }
+const fetchWeather = () => {
+  if (!win || win.isDestroyed()) return;
+  const url = weatherLocation ? `https://wttr.in/${encodeURIComponent(weatherLocation)}?format=j1` : "https://wttr.in?format=j1";
+  https.get(url, (res) => {
+    let data = "";
+    res.on("data", (chunk) => data += chunk);
+    res.on("end", () => {
+      var _a, _b, _c;
+      try {
+        const json = JSON.parse(data);
+        const current = json.current_condition[0];
+        const area = (_a = json.nearest_area) == null ? void 0 : _a[0];
+        const city = ((_c = (_b = area == null ? void 0 : area.areaName) == null ? void 0 : _b[0]) == null ? void 0 : _c.value) || "Local";
+        safeSend(win, "weather-update", {
+          temp: current.temp_C,
+          condition: current.weatherDesc[0].value,
+          city
+        });
+      } catch (e) {
+      }
+    });
+  }).on("error", () => {
+  });
+};
+ipcMain.handle("get-system-audio-id", async () => {
+  var _a;
+  const sources = await desktopCapturer.getSources({ types: ["screen"] });
+  return (_a = sources[0]) == null ? void 0 : _a.id;
+});
+ipcMain.removeAllListeners("set-weather-location");
+ipcMain.on("set-weather-location", (_e, loc) => {
+  weatherLocation = loc || "";
+  fetchWeather();
+});
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.bounds;
@@ -69,25 +105,6 @@ function createWindow() {
     if (weatherInterval) clearInterval(weatherInterval);
     win = null;
   });
-  const fetchWeather = () => {
-    if (!win || win.isDestroyed()) return;
-    try {
-      const cmd = `powershell -Command "Invoke-RestMethod -Uri 'https://wttr.in?format=j1' -ErrorAction SilentlyContinue | ConvertTo-Json -Depth 5"`;
-      exec(cmd, (err, stdout) => {
-        if (err || !stdout) return;
-        try {
-          const data = JSON.parse(stdout);
-          const current = data.current_condition[0];
-          safeSend(win, "weather-update", {
-            temp: current.temp_C,
-            condition: current.weatherDesc[0].value
-          });
-        } catch (e) {
-        }
-      });
-    } catch (e) {
-    }
-  };
   fetchWeather();
   weatherInterval = setInterval(fetchWeather, 20 * 60 * 1e3);
   ipcMain.on("set-ignore-mouse-events", (event, ignore) => {
@@ -109,11 +126,6 @@ function createWindow() {
     currentIslandX = x;
   });
   ipcMain.on("set-is-super-pill", (event, active) => {
-  });
-  ipcMain.handle("get-system-audio-id", async () => {
-    var _a;
-    const sources = await desktopCapturer.getSources({ types: ["screen"] });
-    return (_a = sources[0]) == null ? void 0 : _a.id;
   });
   proximityInterval = setInterval(() => {
     if (!win || win.isDestroyed()) return;
