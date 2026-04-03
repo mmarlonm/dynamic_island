@@ -1,4 +1,4 @@
-import { ipcMain, desktopCapturer, app, screen, BrowserWindow } from "electron";
+import { app, ipcMain, desktopCapturer, screen, BrowserWindow } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
@@ -7,8 +7,67 @@ import os from "node:os";
 import https from "node:https";
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname$1, "..");
+let lastNotifSet = /* @__PURE__ */ new Set();
+let psNotif = null;
+let psNotifBuf = "";
+const startNotifMonitor = () => {
+  const paths = [
+    path.join(__dirname$1, "notifications-monitor.ps1"),
+    path.join(process.cwd(), "electron", "notifications-monitor.ps1"),
+    path.join(process.resourcesPath, "notifications-monitor.ps1"),
+    path.join(process.resourcesPath, "electron", "notifications-monitor.ps1")
+  ];
+  const notifPath = paths.find((p) => fs.existsSync(p));
+  if (!notifPath) {
+    console.warn("[MAIN] Notification Monitor NOT found. Checked paths:", paths);
+    return;
+  }
+  console.log(`[MAIN] Launching Notification Monitor: ${notifPath}`);
+  psNotif = spawn("powershell", ["-ExecutionPolicy", "Bypass", "-File", notifPath]);
+  psNotif.stderr.on("data", (d) => {
+    const errStr = d.toString().trim();
+    if (errStr) console.error(`[NOTIF_PS_ERR] ${errStr}`);
+  });
+  psNotif.stdout.on("data", (d) => {
+    const str = d.toString();
+    psNotifBuf += str;
+    let nl;
+    while ((nl = psNotifBuf.indexOf("\n")) !== -1) {
+      const line = psNotifBuf.slice(0, nl).trim();
+      psNotifBuf = psNotifBuf.slice(nl + 1);
+      if (line.startsWith("__DEBUG__")) {
+        console.log(`[NOTIF_DEBUG] ${line}`);
+      } else if (line.startsWith("__ERROR__")) {
+        console.error(`[NOTIF_ERROR] ${line}`);
+      } else if (line.startsWith("__NOTIF__")) {
+        const data = line.replace("__NOTIF__", "").trim();
+        const parts = data.split("|||");
+        if (parts.length >= 2) {
+          const [appStr, title, body] = parts;
+          const uniqueId = `${appStr}|${title}|${body || ""}`;
+          if (!lastNotifSet.has(uniqueId)) {
+            lastNotifSet.add(uniqueId);
+            console.log(`[MAIN] Incoming Notification: ${appStr} -> ${title}`);
+            if (win) safeSend(win, "notification", { app: appStr, text: (title + " " + (body || "")).trim() });
+            if (lastNotifSet.size > 150) {
+              const first = lastNotifSet.values().next().value;
+              if (first) lastNotifSet.delete(first);
+            }
+          }
+        }
+      }
+    }
+  });
+  psNotif.on("exit", (code) => {
+    console.warn(`[MAIN] Notification Monitor Exited (code ${code}). Restarting...`);
+    setTimeout(startNotifMonitor, 5e3);
+  });
+};
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.notchly.app");
+}
 let win;
 let currentMeetingApp = "Teams";
 let currentMicState = false;
@@ -17,7 +76,6 @@ let isUserCamOff = false;
 let meetingExitCounter = 0;
 let proximityInterval = null;
 let systemUpdateInterval = null;
-let notifInterval = null;
 let volInterval = null;
 let weatherInterval = null;
 let weatherLocation = "";
@@ -89,6 +147,10 @@ function createWindow() {
     }
   });
   win.setIgnoreMouseEvents(true, { forward: true });
+  console.log("[MAIN] Starting Notification Monitor initialization...");
+  setTimeout(() => {
+    if (typeof startNotifMonitor === "function") startNotifMonitor();
+  }, 1e3);
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
   } else {
@@ -100,7 +162,6 @@ function createWindow() {
   win.on("closed", () => {
     if (proximityInterval) clearInterval(proximityInterval);
     if (systemUpdateInterval) clearInterval(systemUpdateInterval);
-    if (notifInterval) clearInterval(notifInterval);
     if (volInterval) clearTimeout(volInterval);
     if (weatherInterval) clearInterval(weatherInterval);
     win = null;
@@ -522,28 +583,6 @@ try {
     psMeet.on("exit", () => setTimeout(startMeetPS, 5e3));
   };
   setTimeout(startMeetPS, 3e3);
-  notifInterval = setInterval(() => {
-    if (!win || win.isDestroyed()) return;
-    const psNotif = `
-      $noise = 'SideBySide','VSS','ESENT','MSExchange','Security-SPP','Desktop Window Manager','.NET Runtime','Windows Error Reporting','DistributedCOM','Service Control Manager';
-      $e = Get-WinEvent -LogName Application -MaxEvents 5 -ErrorAction SilentlyContinue | 
-           Where-Object { $_.LevelDisplayName -eq 'Information' -and $noise -notcontains $_.ProviderName } |
-           Select-Object -First 1 -Property TimeCreated, ProviderName, Message;
-      if ($e) {
-        $msg = ($e.Message -split '\\n')[0] -replace '[^\\x20-\\x7EáéíóúÁÉÍÓÚñÑ]', '';
-        Write-Output ($e.TimeCreated.ToString('o') + '|||' + $e.ProviderName + '|||' + $msg)
-      }
-    `.trim();
-    exec(`powershell -Command "${psNotif.replace(/\n/g, " ")}"`, (err, stdout) => {
-      if (err || !(stdout == null ? void 0 : stdout.trim())) return;
-      const parts = stdout.trim().split("|||");
-      if (parts.length < 3) return;
-      const [id, appStr, msg] = parts;
-      if (!id || id === lastNotifId) return;
-      lastNotifId = id;
-      safeSend(win, "notification", { app: appStr, text: msg });
-    });
-  }, 3e3);
   ipcMain.handle("get-media-source-id", async (_event, mediaInfo) => {
     try {
       const sources = await desktopCapturer.getSources({
@@ -619,6 +658,7 @@ try {
   app.on("before-quit", () => {
     mediaProc == null ? void 0 : mediaProc.kill();
     if (typeof psMeet !== "undefined" && psMeet) psMeet.kill();
+    if (typeof psNotif !== "undefined" && psNotif) psNotif.kill();
   });
 } catch (err) {
   console.error("[MAIN] Setup Error:", err);

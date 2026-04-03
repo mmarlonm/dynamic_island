@@ -12,7 +12,8 @@
       "**/*.node"
     ],
     "extraResources": [
-      "volume.exe"
+      "volume.exe",
+      "electron/*.ps1"
     ],
     "win": {
       "target": [

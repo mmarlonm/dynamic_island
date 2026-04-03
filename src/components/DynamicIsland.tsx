@@ -135,7 +135,7 @@ const SoundVisualizer = ({ isPlaying, onIntensity }: { isPlaying: boolean; onInt
 };
 
 // ── Floating timer circle (pill-mode) ────────────────────────────────────────
-const TimerBubble = ({ time, total, isActive, isLightMode }: { time: number; total: number; isActive: boolean; isLightMode: boolean }) => {
+const TimerBubble = ({ time, total, isActive, isLightMode, onClick }: { time: number; total: number; isActive: boolean; isLightMode: boolean; onClick?: () => void }) => {
   const pct = total > 0 ? time / total : 0;
   const r = 22, circ = 2 * Math.PI * r;
   const fmt = (s: number) => {
@@ -152,7 +152,8 @@ const TimerBubble = ({ time, total, isActive, isLightMode }: { time: number; tot
       initial={{ scale: 0, opacity: 0, x: -6 }}
       animate={{ scale: 1, opacity: 1, x: 0 }}
       exit={{ scale: 0, opacity: 0, x: -6 }}
-      className="pointer-events-auto select-none"
+      className="pointer-events-auto select-none cursor-pointer"
+      onClick={onClick}
     >
       <div className="relative w-14 h-14 flex items-center justify-center">
         <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 56 56">
@@ -1630,7 +1631,17 @@ export const DynamicIsland = () => {
             {/* Timer bubble */}
             <AnimatePresence>
               {showTimerBubble && (
-                <TimerBubble time={timerTime} total={timerTotal} isActive={timerActive} isLightMode={isLightMode} />
+                <TimerBubble 
+                  time={timerTime} 
+                  total={timerTotal} 
+                  isActive={timerActive} 
+                  isLightMode={isLightMode} 
+                  onClick={() => { 
+                    setIsPinned(true); 
+                    setActiveView('Herramientas'); 
+                    (window as any).ipcRenderer?.send('set-ignore-mouse-events', false); 
+                  }} 
+                />
               )}
             </AnimatePresence>
 
@@ -1639,7 +1650,11 @@ export const DynamicIsland = () => {
               {showNotifBubble && (
                 <NotifBubble
                   count={notifications.length}
-                  onClick={() => { setIsHovered(true); setActiveView('Notificación'); (window as any).ipcRenderer?.send('set-ignore-mouse-events', false); }}
+                  onClick={() => { 
+                    setIsPinned(true);
+                    setActiveView('Notificación'); 
+                    (window as any).ipcRenderer?.send('set-ignore-mouse-events', false); 
+                  }}
                 />
               )}
             </AnimatePresence>
