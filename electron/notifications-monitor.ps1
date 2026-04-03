@@ -16,11 +16,15 @@ while ($true) {
         $content = [System.IO.File]::ReadAllBytes($tempDb)
         $text = [System.Text.Encoding]::UTF8.GetString($content)
         
-        # Regex to find <toast> XML payloads and their associated app/handler names
-        # We look for common app signatures in the database strings
+        # Regex to find <toast> XML payloads
         $matches = [regex]::Matches($text, '<toast[\s\S]*?<\/toast>')
         
-        foreach ($m in $matches) {
+        # Define a cutoff for recent notifications (last hour)
+        # Note: We can't perfectly date match raw strings without a SQLite driver, 
+        # but we can at least only take the LAST 10 matches to avoid flooding.
+        $recentMatches = if ($matches.Count -gt 10) { $matches | Select-Object -Last 10 } else { $matches }
+        
+        foreach ($m in $recentMatches) {
             $xmlText = $m.Value
             try {
                 [xml]$xml = $xmlText

@@ -343,6 +343,7 @@ try {
     stdio: ["inherit", "inherit", "inherit", "ipc"]
   });
   let lastMediaMsg = null;
+  let mediaSessions = /* @__PURE__ */ new Map();
   if (mediaProc) {
     if (mediaProc.stdout) {
       mediaProc.stdout.on("data", (d) => {
@@ -352,8 +353,24 @@ try {
     }
     mediaProc.on("message", (msg) => {
       if ((msg == null ? void 0 : msg.type) === "MEDIA_UPDATE") {
-        lastMediaMsg = msg.data;
-        safeSend(win, "media-update", msg.data);
+        const data = msg.data;
+        if (!data) return;
+        const sessionKey = data.id && data.id !== "system" ? data.id : data.title + "||" + (data.artist || "");
+        if (data.title && data.title !== "Sin Reproducción") {
+          mediaSessions.set(sessionKey, { ...data, timestamp: Date.now() });
+        }
+        let sessionsList = Array.from(mediaSessions.values()).filter((s) => s.title !== "Sin Reproducción").sort((a, b) => b.timestamp - a.timestamp);
+        let displayData = data;
+        const activePlaying = sessionsList.find((s) => s.isPlaying);
+        if (activePlaying) {
+          displayData = activePlaying;
+        } else {
+          if (sessionsList.length > 0) {
+            displayData = sessionsList[0];
+          }
+        }
+        lastMediaMsg = displayData;
+        safeSend(win, "media-update", displayData);
       }
     });
   }

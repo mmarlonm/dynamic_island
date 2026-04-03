@@ -439,6 +439,7 @@ try {
   });
 
   let lastMediaMsg: any = null;
+  let mediaSessions = new Map<string, any>(); // Track all media sessions for fallbacks
   if (mediaProc) {
     if (mediaProc.stdout) {
       mediaProc.stdout.on('data', (d: Buffer) => { });
@@ -446,7 +447,40 @@ try {
     }
 
     mediaProc.on('message', (msg: any) => {
-      if (msg?.type === 'MEDIA_UPDATE') { lastMediaMsg = msg.data; safeSend(win, 'media-update', msg.data); }
+      if (msg?.type === 'MEDIA_UPDATE') { 
+        const data = msg.data;
+        if (!data) return;
+
+        // Use a more unique session key combining ID and title to distinguish between browser tabs
+        const sessionKey = (data.id && data.id !== 'system') ? data.id : (data.title + '||' + (data.artist || ''));
+        
+        if (data.title && data.title !== 'Sin Reproducción') {
+           // Enrich the session data with a timestamp for LRU logic
+           mediaSessions.set(sessionKey, { ...data, timestamp: Date.now() });
+        }
+
+        // --- Advanced Fallback Logic ---
+        let sessionsList = Array.from(mediaSessions.values())
+           .filter(s => s.title !== 'Sin Reproducción')
+           .sort((a, b) => b.timestamp - a.timestamp);
+
+        let displayData = data;
+
+        // Priority 1: Pick the session that is currently PLAYING (most recent playing)
+        const activePlaying = sessionsList.find(s => s.isPlaying);
+        
+        if (activePlaying) {
+           displayData = activePlaying;
+        } else {
+           // Priority 2: If nothing is playing, pick the MOST RECENT session (not necessarily the one that just stopped)
+           if (sessionsList.length > 0) {
+              displayData = sessionsList[0];
+           }
+        }
+
+        lastMediaMsg = displayData; 
+        safeSend(win, 'media-update', displayData); 
+      }
     });
   }
 
