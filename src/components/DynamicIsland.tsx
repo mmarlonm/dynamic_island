@@ -1296,8 +1296,7 @@ export const DynamicIsland = () => {
                 <div className="flex justify-between items-center px-2 py-1 shrink-0">
                   <span className="text-[9.5px] font-black uppercase tracking-[0.4em]" style={{ opacity: 0.4 }}>{t.notificacion}</span>
                   <button onClick={() => {
-                    const ids = notifications.map(n => n.id);
-                    (window as any).ipcRenderer?.send('clear-all-notifications', ids);
+                    (window as any).ipcRenderer?.send('clear-all-notifications');
                     setNotifications([]);
                   }} className="text-[9px] font-black text-red-500 flex items-center gap-1.5 uppercase">
                     <Trash2 className="w-3 h-3" /> {t.clear}

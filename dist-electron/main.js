@@ -48,20 +48,42 @@ ipcMain.on("dismiss-notification", (_, id) => {
   const info = notifMap.get(String(id));
   if (!info) return;
   const dismissCmd = `
-    [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime];
-    $listener = [Windows.UI.Notifications.Management.UserNotificationListener]::Current;
-    $notifsOp = $listener.GetNotificationsAsync(1);
-    while ($notifsOp.Status -eq 'Started') { Start-Sleep -m 50 }
-    $notifs = $notifsOp.GetResults();
-    $target = $notifs | Where-Object { 
-        $_.AppInfo.DisplayInfo.DisplayName -match '${info.app}' -and 
-        $_.Notification.Visual.GetBinding('ToastGeneric').GetTextElements()[0].Text -match '${info.title.replace(/'/g, "''")}' 
-    } | Select-Object -First 1;
-    if ($target) { $listener.RemoveNotification($target.Id); }
+    $ErrorActionPreference = 'SilentlyContinue'
+    [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]
+    $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current
+    $o = $l.GetNotificationsAsync(1)
+    $asInfo = [Windows.Foundation.IAsyncInfo]$o
+    while($asInfo.Status -eq 'Started') { [System.Threading.Thread]::Sleep(50) }
+    $ns = $o.GetResults()
+    $t = $ns | Where-Object { 
+        ($_.AppInfo.DisplayInfo.DisplayName -match '${info.app}' -or $_.AppInfo.Id -match '${info.app}') -and 
+        ($_.Notification.Visual.GetBinding('ToastGeneric').GetTextElements()[0].Text -like '*${info.title.replace(/'/g, "''")}*')
+    } | Select-Object -First 1
+    if ($t) { $l.RemoveNotification($t.Id) }
   `;
   spawn("powershell", ["-Command", dismissCmd]);
   notifMap.delete(String(id));
 });
+ipcMain.on("clear-all-notifications", () => {
+  const clearAllCmd = `
+    $ErrorActionPreference = 'SilentlyContinue'
+    [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]
+    $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current
+    $o = $l.GetNotificationsAsync(1)
+    $asInfo = [Windows.Foundation.IAsyncInfo]$o
+    while($asInfo.Status -eq 'Started') { [System.Threading.Thread]::Sleep(50) }
+    $ns = $o.GetResults()
+    foreach($n in $ns) {
+      $l.RemoveNotification($n.Id)
+    }
+  `;
+  spawn("powershell", ["-Command", clearAllCmd]);
+  notifMap.clear();
+});
+function requestNotificationAccess() {
+  const accessCmd = `[void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]; [Windows.UI.Notifications.Management.UserNotificationListener]::Current.RequestAccessAsync()`;
+  spawn("powershell", ["-Command", accessCmd]);
+}
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 if (process.platform === "win32") {
@@ -146,9 +168,9 @@ function createWindow() {
     }
   });
   win.setIgnoreMouseEvents(true, { forward: true });
-  console.log("[MAIN] Starting Notification Monitor initialization...");
   setTimeout(() => {
     if (typeof startNotifMonitor === "function") startNotifMonitor();
+    if (typeof requestNotificationAccess === "function") requestNotificationAccess();
   }, 1e3);
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
