@@ -4,7 +4,7 @@ import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
   EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Download
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -382,7 +382,7 @@ export const DynamicIsland = () => {
   const [isHovered, setIsHovered]     = useState(false);
   const [isPinned, setIsPinned]       = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada'>('Resumen');
+  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada' | 'Actualización'>('Resumen');
   const [lang, setLang]               = useState<'es' | 'en' | 'zh'>('es');
   const [isLightMode, setIsLightMode] = useState(false);
   const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>('Moderno');
@@ -399,12 +399,15 @@ export const DynamicIsland = () => {
   // 0-100 system volume
 
   // Timer state
-  const [timerTime, setTimerTime]     = useState(0);
-  const [timerTotal, setTimerTotal]   = useState(0);
-  const [timerActive, setTimerActive] = useState(false);
-  const [timerHours, setTimerHours]   = useState(0);
-  const [timerMins, setTimerMins]     = useState(25);
-  const [timerSecs, setTimerSecs]     = useState(0);
+  const [proximity, setProximity]      = useState(0);
+  const [timerTime, setTimerTime]      = useState(0);
+  const [updateInfo, setUpdateInfo]    = useState<{version: string, status: 'idle' | 'available' | 'downloading' | 'ready'} | null>(null);
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [timerTotal, setTimerTotal]    = useState(0);
+  const [timerActive, setTimerActive]  = useState(false);
+  const [timerHours, setTimerHours]    = useState(0);
+  const [timerMins, setTimerMins]      = useState(25);
+  const [timerSecs, setTimerSecs]      = useState(0);
   const timerRef = useRef<any>(null);
   const lastCommandTimeRef = useRef(0);
   const volDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -518,8 +521,28 @@ export const DynamicIsland = () => {
           return [d, ...p.slice(0, 14)]; // Guardar hasta 15 recientes
         });
       });
-      ipc.on('notification-remove', (_: any, winId: string) => {
-        setNotifications(p => p.filter(n => String(n.id) !== String(winId)));
+      ipc.on('notification-remove', (_: any, id: string) => {
+        setNotifications(p => p.filter(n => String(n.id) !== String(id)));
+      });
+
+      // Update System Listeners
+      ipc.on('update-available', (_: any, info: any) => {
+        setUpdateInfo({ version: info.version, status: 'available' });
+        // Add a special notification to the tray instead of switching view
+        setNotifications(p => [{
+          id: 999999, // Special ID for updates
+          app: 'SISTEMA',
+          text: `Nueva versión v${info.version} disponible.`
+        }, ...p.filter(n => n.id !== 999999)]);
+      });
+
+      ipc.on('update-progress', (_: any, percent: number) => {
+        setUpdateProgress(percent);
+        setUpdateInfo(p => p ? { ...p, status: 'downloading' } : null);
+      });
+
+      ipc.on('update-ready', () => {
+        setUpdateInfo(p => p ? { ...p, status: 'ready' } : null);
       });
       ipc.on('system-update',  (_: any, d: any) => setSystemInfo(d));
       ipc.on('weather-update', (_: any, d: any) => setWeather(d));
@@ -1312,6 +1335,19 @@ export const DynamicIsland = () => {
                       <div className="text-left min-w-0">
                         <span className="text-[9px] font-black text-blue-500 uppercase">{n.app}</span>
                         <p className="text-[12px] font-bold opacity-90 leading-tight truncate">{n.text}</p>
+                        {n.id === 999999 && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              (window as any).ipcRenderer?.send('start-update-download');
+                              setActiveView('Actualización');
+                              setNotifications(p => p.filter(x => x.id !== 999999));
+                            }}
+                            className="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
+                          >
+                            Actualizar Ahora
+                          </button>
+                        )}
                       </div>
                     </div>
                   )) : (
@@ -1425,6 +1461,95 @@ export const DynamicIsland = () => {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* ACTUALIZACIÓN REMOTA */}
+            {activeView === 'Actualización' && updateInfo && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="absolute inset-0 flex flex-col gap-4 p-8">
+                <div className="flex justify-between items-center px-2">
+                  <div className="flex flex-col">
+                    <span className="text-[12px] font-black uppercase tracking-[0.3em] text-blue-500">Notchly Update</span>
+                    <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Repositorio: GitHub</span>
+                  </div>
+                  <div className="px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20">
+                    <span className="text-[11px] font-black text-blue-400">v{updateInfo.version}</span>
+                  </div>
+                </div>
+                
+                <div className="flex-1 flex flex-col justify-center items-center gap-4 text-center px-10">
+                  {updateInfo.status === 'available' && (
+                    <>
+                      <div className="w-20 h-20 rounded-[30px] bg-blue-500/10 flex items-center justify-center text-blue-500 mb-2 border border-blue-500/10 shadow-lg">
+                        <Download className="w-10 h-10" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[18px] font-black tracking-tight tracking-widest uppercase">Actualización Lista</span>
+                        <p className="text-[11px] text-white/50 leading-relaxed font-bold uppercase">Mejoras de rendimiento, corrección de <br/>errores y nuevas funciones dinámicas.</p>
+                      </div>
+                    </>
+                  )}
+                  
+                  {updateInfo.status === 'downloading' && (
+                    <>
+                      <div className="flex flex-col gap-3 w-full items-center">
+                        <span className="text-[14px] font-black uppercase tracking-widest text-blue-500">Descargando Paquete...</span>
+                        <div className="w-full h-3 bg-white/5 rounded-full overflow-hidden border border-white/5 relative">
+                          <motion.div 
+                            className="absolute left-0 top-0 h-full bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)]"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${updateProgress}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between w-full text-[10px] font-black text-white/40 uppercase tracking-widest">
+                          <span>Instalador Remoto</span>
+                          <span className="text-blue-400">{Math.round(updateProgress)}%</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  
+                  {updateInfo.status === 'ready' && (
+                    <>
+                      <motion.div 
+                        initial={{ scale: 0.9 }}
+                        animate={{ scale: 1 }}
+                        className="w-20 h-20 rounded-[30px] bg-green-500/10 flex items-center justify-center text-green-400 mb-2 border border-green-500/10 shadow-lg"
+                      >
+                        <RotateCcw className="w-10 h-10" />
+                      </motion.div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[18px] font-black tracking-tight text-green-400 uppercase tracking-widest">Lista para Instalar</span>
+                        <p className="text-[11px] text-white/50 leading-relaxed font-bold uppercase">La descarga ha finalizado con éxito. <br/>Reinicia para aplicar los cambios.</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex gap-4 mt-auto mb-2 px-2">
+                  {updateInfo.status === 'available' && (
+                    <button 
+                      onClick={() => (window as any).ipcRenderer?.send('start-update-download')}
+                      className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] text-[11px] font-black transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95 uppercase tracking-widest"
+                    >
+                      <Download className="w-4 h-4" /> Empezar Descarga
+                    </button>
+                  )}
+                  {updateInfo.status === 'ready' && (
+                    <button 
+                      onClick={() => (window as any).ipcRenderer?.send('install-update-now')}
+                      className="flex-1 py-4 bg-green-600 hover:bg-green-500 text-white rounded-[24px] text-[11px] font-black transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95 uppercase tracking-widest"
+                    >
+                      <RotateCcw className="w-4 h-4" /> Reiniciar e Instalar
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => setActiveView('Resumen')}
+                    className="flex-1 py-4 bg-white/5 hover:bg-white/10 text-white/70 rounded-[24px] text-[11px] font-black transition-all uppercase tracking-widest border border-white/5"
+                  >
+                    Después
+                  </button>
+                </div>
+              </motion.div>
             )}
           </div>
         </motion.div>

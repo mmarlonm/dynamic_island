@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import { fork, exec, spawn } from 'node:child_process'
 import os from 'node:os'
 import https from 'node:https'
+import { autoUpdater } from 'electron-updater'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -93,6 +94,41 @@ ipcMain.on('clear-all-notifications', () => {
   `;
   spawn('powershell', ['-Command', clearAllCmd]);
   notifMap.clear();
+});
+
+// Remote Update IPC Handlers
+autoUpdater.autoDownload = false; // We want the user to trigger the download
+
+autoUpdater.on('update-available', (info) => {
+  safeSend(win, 'update-available', {
+    version: info.version,
+    releaseNotes: info.releaseNotes,
+    releaseDate: info.releaseDate
+  });
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  safeSend(win, 'update-progress', progress.percent);
+});
+
+autoUpdater.on('update-downloaded', () => {
+  safeSend(win, 'update-ready');
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('[UPDATER_ERROR] ' + err);
+});
+
+ipcMain.on('check-for-updates', () => {
+  autoUpdater.checkForUpdates().catch(e => console.error('Check failed: ' + e));
+});
+
+ipcMain.on('start-update-download', () => {
+  autoUpdater.downloadUpdate();
+});
+
+ipcMain.on('install-update-now', () => {
+  autoUpdater.quitAndInstall();
 });
 
 // Trigger Notification Access on startup
@@ -210,7 +246,8 @@ function createWindow() {
   // Initialize monitors after a small delay to ensure window is ready
   setTimeout(() => {
     if (typeof startNotifMonitor === 'function') startNotifMonitor();
-    if (typeof requestNotificationAccess === 'function') requestNotificationAccess();
+    requestNotificationAccess();
+    autoUpdater.checkForUpdatesAndNotify().catch(e => console.error('Update check failed: ' + e));
   }, 1000);
 
   if (VITE_DEV_SERVER_URL) {
