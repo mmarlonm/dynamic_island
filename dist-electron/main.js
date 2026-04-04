@@ -1,68 +1,67 @@
-import { app, ipcMain, desktopCapturer, screen, BrowserWindow } from "electron";
+import { ipcMain, app, desktopCapturer, screen, BrowserWindow } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
-import { fork, spawn, exec } from "node:child_process";
+import { spawn, fork, exec } from "node:child_process";
 import os from "node:os";
 import https from "node:https";
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname$1, "..");
-let lastNotifSet = /* @__PURE__ */ new Set();
 let psNotif = null;
-let psNotifBuf = "";
+let notifMap = /* @__PURE__ */ new Map();
 const startNotifMonitor = () => {
   const paths = [
     path.join(__dirname$1, "notifications-monitor.ps1"),
-    path.join(process.cwd(), "electron", "notifications-monitor.ps1"),
-    path.join(process.resourcesPath, "notifications-monitor.ps1"),
-    path.join(process.resourcesPath, "electron", "notifications-monitor.ps1")
+    path.join(process.cwd(), "electron", "notifications-monitor.ps1")
   ];
   const notifPath = paths.find((p) => fs.existsSync(p));
-  if (!notifPath) {
-    console.warn("[MAIN] Notification Monitor NOT found. Checked paths:", paths);
-    return;
-  }
+  if (!notifPath) return;
   console.log(`[MAIN] Launching Notification Monitor: ${notifPath}`);
   psNotif = spawn("powershell", ["-ExecutionPolicy", "Bypass", "-File", notifPath]);
-  psNotif.stderr.on("data", (d) => {
-    const errStr = d.toString().trim();
-    if (errStr) console.error(`[NOTIF_PS_ERR] ${errStr}`);
-  });
   psNotif.stdout.on("data", (d) => {
-    const str = d.toString();
-    psNotifBuf += str;
-    let nl;
-    while ((nl = psNotifBuf.indexOf("\n")) !== -1) {
-      const line = psNotifBuf.slice(0, nl).trim();
-      psNotifBuf = psNotifBuf.slice(nl + 1);
-      if (line.startsWith("__DEBUG__")) {
-        console.log(`[NOTIF_DEBUG] ${line}`);
-      } else if (line.startsWith("__ERROR__")) {
-        console.error(`[NOTIF_ERROR] ${line}`);
-      } else if (line.startsWith("__NOTIF__")) {
-        const data = line.replace("__NOTIF__", "").trim();
-        const parts = data.split("|||");
-        if (parts.length >= 2) {
-          const [appStr, title, body] = parts;
-          const uniqueId = `${appStr}|${title}|${body || ""}`;
-          if (!lastNotifSet.has(uniqueId)) {
-            lastNotifSet.add(uniqueId);
-            console.log(`[MAIN] Incoming Notification: ${appStr} -> ${title}`);
-            if (win) safeSend(win, "notification", { app: appStr, text: (title + " " + (body || "")).trim() });
-            if (lastNotifSet.size > 150) {
-              const first = lastNotifSet.values().next().value;
-              if (first) lastNotifSet.delete(first);
-            }
-          }
+    const lines = d.toString().split("\n");
+    for (let line of lines) {
+      line = line.trim();
+      if (line.startsWith("__NOTIF__")) {
+        const parts = line.replace("__NOTIF__", "").split("|||");
+        if (parts.length >= 4) {
+          const [appStr, title, body, winId] = parts;
+          notifMap.set(winId, { title, app: appStr });
+          safeSend(win, "notification-sync", {
+            id: winId,
+            app: appStr,
+            text: (title + " " + (body || "")).trim()
+          });
         }
+      } else if (line.startsWith("__REMOVE__")) {
+        const winId = line.replace("__REMOVE__", "").trim();
+        notifMap.delete(winId);
+        safeSend(win, "notification-remove", winId);
+      } else if (line.startsWith("__DEBUG__")) {
+        console.log(`[NOTIF_DEBUG] ${line}`);
       }
     }
   });
-  psNotif.on("exit", (code) => {
-    console.warn(`[MAIN] Notification Monitor Exited (code ${code}). Restarting...`);
-    setTimeout(startNotifMonitor, 5e3);
-  });
+  psNotif.on("exit", () => setTimeout(startNotifMonitor, 5e3));
 };
+ipcMain.on("dismiss-notification", (_, id) => {
+  const info = notifMap.get(String(id));
+  if (!info) return;
+  const dismissCmd = `
+    [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime];
+    $listener = [Windows.UI.Notifications.Management.UserNotificationListener]::Current;
+    $notifsOp = $listener.GetNotificationsAsync(1);
+    while ($notifsOp.Status -eq 'Started') { Start-Sleep -m 50 }
+    $notifs = $notifsOp.GetResults();
+    $target = $notifs | Where-Object { 
+        $_.AppInfo.DisplayInfo.DisplayName -match '${info.app}' -and 
+        $_.Notification.Visual.GetBinding('ToastGeneric').GetTextElements()[0].Text -match '${info.title.replace(/'/g, "''")}' 
+    } | Select-Object -First 1;
+    if ($target) { $listener.RemoveNotification($target.Id); }
+  `;
+  spawn("powershell", ["-Command", dismissCmd]);
+  notifMap.delete(String(id));
+});
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 if (process.platform === "win32") {

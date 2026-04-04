@@ -511,9 +511,18 @@ export const DynamicIsland = () => {
       ipc.invoke('get-current-media').then((d: any) => { if (d) setMedia(d); }).catch(() => {});
       ipc.invoke('get-volume').then((v: any) => { if (typeof v === 'number') setVolume(v); }).catch(() => {});
       ipc.on('media-update',   (_: any, d: any) => setMedia(d));
+      ipc.on('notification-sync', (_: any, d: any) => {
+        setNotifications(p => {
+          const exists = p.find(n => n.id === d.id);
+          if (exists) return p.map(n => n.id === d.id ? { ...n, ...d } : n);
+          return [d, ...p.slice(0, 14)]; // Guardar hasta 15 recientes
+        });
+      });
+      ipc.on('notification-remove', (_: any, winId: string) => {
+        setNotifications(p => p.filter(n => String(n.id) !== String(winId)));
+      });
       ipc.on('system-update',  (_: any, d: any) => setSystemInfo(d));
       ipc.on('weather-update', (_: any, d: any) => setWeather(d));
-      ipc.on('notification',   (_: any, d: any) => setNotifications(p => [{ id: Date.now(), ...d }, ...p.slice(0, 9)]));
       ipc.on('volume-update',  (_: any, v: number) => setVolume(v));
       ipc.on('mouse-proximity', () => { /* Reservado para efectos visuales futuros */ });
       ipc.send('set-weather-location', weatherCity);
@@ -1286,13 +1295,20 @@ export const DynamicIsland = () => {
               <div className="absolute inset-0 flex flex-col">
                 <div className="flex justify-between items-center px-2 py-1 shrink-0">
                   <span className="text-[9.5px] font-black uppercase tracking-[0.4em]" style={{ opacity: 0.4 }}>{t.notificacion}</span>
-                  <button onClick={() => setNotifications([])} className="text-[9px] font-black text-red-500 flex items-center gap-1.5 uppercase">
+                  <button onClick={() => {
+                    const ids = notifications.map(n => n.id);
+                    (window as any).ipcRenderer?.send('clear-all-notifications', ids);
+                    setNotifications([]);
+                  }} className="text-[9px] font-black text-red-500 flex items-center gap-1.5 uppercase">
                     <Trash2 className="w-3 h-3" /> {t.clear}
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-1.5 px-1 pb-1">
                   {notifications.length > 0 ? notifications.map(n => (
-                    <div key={n.id} onClick={() => setNotifications(p => p.filter(x => x.id !== n.id))} className="rounded-[16px] border p-3 flex items-center gap-3 cursor-pointer transition-all hover:!bg-white/10" style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.06)' }}>
+                    <div key={n.id} onClick={() => {
+                      (window as any).ipcRenderer?.send('dismiss-notification', n.id);
+                      setNotifications(p => p.filter(x => x.id !== n.id));
+                    }} className="rounded-[16px] border p-3 flex items-center gap-3 cursor-pointer transition-all hover:!bg-white/10" style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.06)' }}>
                       <div className="w-8 h-8 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500 shrink-0"><Bell className="w-4 h-4" /></div>
                       <div className="text-left min-w-0">
                         <span className="text-[9px] font-black text-blue-500 uppercase">{n.app}</span>
