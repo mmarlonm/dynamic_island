@@ -424,6 +424,12 @@ export const DynamicIsland = () => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isCollapsing, setIsCollapsing] = useState(false); // Track active transition
   const isExpanded = isHovered || isPinned || showSettings;
+  const [autoLaunch, setAutoLaunch] = useState(false);
+  const [lastSelectedCity, setLastSelectedCity] = useState(localStorage.getItem('weatherLocation') || '');
+
+  useEffect(() => {
+    (window as any).ipcRenderer?.invoke('get-auto-launch').then(setAutoLaunch);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -515,9 +521,9 @@ export const DynamicIsland = () => {
   }, []);
 
   const T: Record<string, any> = {
-    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp' },
-    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp' },
-    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp' },
+    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp', autoLaunch:'Auto-inicio' },
+    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp', autoLaunch:'Auto-Launch' },
+    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp', autoLaunch:'自动启动' },
   };
   const t = T[lang] ?? T.es;
 
@@ -592,6 +598,12 @@ export const DynamicIsland = () => {
       setShowSuggestions(false);
       return;
     }
+    if (weatherCity === lastSelectedCity || !weatherCity || weatherCity.length < 3) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
@@ -624,6 +636,11 @@ export const DynamicIsland = () => {
       setIsCollapsing(false);
     }
   }, [isHovered, isPinned, showSettings, isExpanded]);
+
+  // Sync weather location to localStorage
+  useEffect(() => {
+    if (weatherCity) localStorage.setItem('weatherLocation', weatherCity);
+  }, [weatherCity]);
 
   const playAlarm = () => {
     try {
@@ -985,10 +1002,10 @@ export const DynamicIsland = () => {
         >
           <div className={clsx('flex items-center justify-between mb-2 pb-2 border-b shrink-0 z-50', isLightMode ? 'border-black/5' : 'border-white/5')}>
             <div 
-              className="flex-1 flex gap-1 items-center overflow-x-auto no-scrollbar scroll-smooth" 
+              className="flex-1 flex gap-1 items-center overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap" 
               style={{ 
-                maskImage: 'linear-gradient(to right, black 92%, transparent 100%)', 
-                WebkitMaskImage: 'linear-gradient(to right, black 92%, transparent 100%)' 
+                maskImage: 'linear-gradient(to right, black 95%, transparent 100%)', 
+                WebkitMaskImage: 'linear-gradient(to right, black 95%, transparent 100%)' 
               }}
               onPointerDown={(e) => e.stopPropagation()}
               onWheel={(e) => {
@@ -1003,7 +1020,7 @@ export const DynamicIsland = () => {
                     key={v}
                     onClick={() => setActiveView(v)}
                     className={clsx(
-                      'px-3 py-1 rounded-full text-[9.5px] font-black flex items-center gap-1 transition-all uppercase whitespace-nowrap',
+                      'px-3 py-1 rounded-full text-[9.5px] font-black flex items-center gap-1 transition-all uppercase whitespace-nowrap shrink-0',
                       activeView === v
                         ? (isLightMode ? 'bg-black text-white' : 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.2)]')
                         : (isLightMode ? 'opacity-30 hover:opacity-60' : 'opacity-30 hover:opacity-70')
@@ -1657,7 +1674,7 @@ export const DynamicIsland = () => {
               <div className="flex-1 overflow-hidden grid grid-cols-3">
 
                 {/* Col 1: Tabs visibility */}
-                <div className="flex flex-col gap-4 p-8" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
+                <div className="flex flex-col gap-4 p-8 overflow-y-auto no-scrollbar" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
                   <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.visibility}</span>
                   <div className="flex flex-col gap-2">
                     {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'WhatsApp', 'Herramientas'] as const).map(v => (
@@ -1679,7 +1696,7 @@ export const DynamicIsland = () => {
                 </div>
 
                 {/* Col 2: Template */}
-                <div className="flex flex-col gap-4 p-8" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
+                <div className="flex flex-col gap-4 p-8 overflow-y-auto no-scrollbar" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
                   <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.template}</span>
                   <div className="flex flex-col gap-3">
                     {(['Moderno', 'Mínimo', 'Clásico'] as const).map(k => (
@@ -1699,18 +1716,42 @@ export const DynamicIsland = () => {
                       </button>
                     ))}
                   </div>
+
+                  <div className="flex flex-col gap-3 mt-4">
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.lang}</span>
+                    <div className="flex gap-2">
+                      {(['es', 'en', 'zh'] as const).map(l => (
+                        <button
+                          key={l}
+                          onClick={() => setLang(l)}
+                          className="flex-1 py-3 rounded-xl font-black uppercase text-[11px] tracking-wider transition-all border"
+                          style={{
+                            background: lang === l ? 'rgba(59,130,246,0.8)' : 'rgba(255,255,255,0.04)',
+                            borderColor: lang === l ? 'transparent' : 'rgba(255,255,255,0.08)',
+                            color: lang === l ? '#fff' : 'inherit',
+                            opacity: lang === l ? 1 : 0.4,
+                          }}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Col 3: Theme + Language + SuperPill */}
-                <div className="flex-1 flex flex-col gap-5 p-8">
+                <div className="flex-1 flex flex-col gap-5 p-8 overflow-y-auto no-scrollbar">
                     <div className="flex flex-col gap-3 relative">
                       <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.weatherLoc}</span>
                       <div className="relative group">
                         <input
                           type="text"
                           value={weatherCity}
-                          onChange={(e) => { setWeatherCity(e.target.value); setShowSuggestions(true); }}
-                          onFocus={() => setShowSuggestions(suggestions.length > 0)}
+                          onChange={(e) => { 
+                            setWeatherCity(e.target.value); 
+                            if (e.target.value.length > 2) setShowSuggestions(true); 
+                          }}
+                          onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
                           placeholder="IP Geolocation..."
                           className="w-full px-4 py-3 rounded-2xl border transition-all font-black text-[11px] outline-none pr-10"
                           style={{
@@ -1744,7 +1785,12 @@ export const DynamicIsland = () => {
                               {suggestions.map((s, i) => (
                                 <button
                                   key={i}
-                                  onClick={() => { setWeatherCity(s); setShowSuggestions(false); }}
+                                  onClick={() => { 
+                                    setWeatherCity(s); 
+                                    setLastSelectedCity(s);
+                                    setShowSuggestions(false);
+                                    localStorage.setItem('weatherLocation', s);
+                                  }}
                                   className="w-full text-left px-5 py-3 text-[10px] font-bold hover:bg-blue-500/10 transition-colors border-b last:border-0"
                                   style={{ 
                                     borderColor: isLightMode ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)',
@@ -1794,6 +1840,29 @@ export const DynamicIsland = () => {
                     )}
                   </div>
 
+                  {/* SISTEMA / AUTO-START */}
+                  <div className="flex flex-col gap-3 mt-2">
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.sistema}</span>
+                    <button
+                      onClick={() => {
+                        const next = !autoLaunch;
+                        setAutoLaunch(next);
+                        (window as any).ipcRenderer?.send('set-auto-launch', next);
+                      }}
+                      className="flex items-center justify-between px-4 py-3 rounded-2xl border transition-all font-black text-[11px] uppercase pointer-events-auto"
+                      style={{
+                        background: autoLaunch ? (isLightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)') : 'transparent',
+                        borderColor: autoLaunch ? (isLightMode ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)') : (isLightMode ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+                        color: autoLaunch ? '#60a5fa' : 'inherit',
+                      }}
+                    >
+                      <span>{t.autoLaunch}</span>
+                      <div className={clsx('w-8 h-4 rounded-full relative transition-all', autoLaunch ? 'bg-blue-500' : 'bg-zinc-700')}>
+                        <div className={clsx('absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all', autoLaunch ? (isLightMode ? 'left-4' : 'left-4.5') : 'left-0.5')} />
+                      </div>
+                    </button>
+                  </div>
+
                   <div className="flex flex-col gap-3">
                     <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.theme}</span>
                     <button
@@ -1810,30 +1879,10 @@ export const DynamicIsland = () => {
                     </button>
                   </div>
 
-                  <div className="flex flex-col gap-3">
-                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.lang}</span>
-                    <div className="flex gap-2">
-                      {(['es', 'en', 'zh'] as const).map(l => (
-                        <button
-                          key={l}
-                          onClick={() => setLang(l)}
-                          className="flex-1 py-3 rounded-xl font-black uppercase text-[11px] tracking-wider transition-all border"
-                          style={{
-                            background: lang === l ? 'rgba(59,130,246,0.8)' : 'rgba(255,255,255,0.04)',
-                            borderColor: lang === l ? 'transparent' : 'rgba(255,255,255,0.08)',
-                            color: lang === l ? '#fff' : 'inherit',
-                            opacity: lang === l ? 1 : 0.4,
-                          }}
-                        >
-                          {l}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </div>
-              </div>
-            </motion.div>
-          )}
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
 

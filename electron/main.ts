@@ -292,6 +292,22 @@ function createWindow() {
 
   const BUFFER = 100;
 
+  ipcMain.handle('get-auto-launch', () => {
+    return app.getLoginItemSettings().openAtLogin;
+  });
+
+  ipcMain.on('set-auto-launch', (event, value) => {
+    // Only works in packaged app, but we can set it for testing logic
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: value,
+        path: app.getPath('exe')
+      });
+    } catch (e) {
+      console.error('Failed to set login item settings:', e);
+    }
+  });
+
   ipcMain.on('set-window-dimensions', (event, { w, h }) => {
     if (win && !win.isDestroyed()) {
       const primaryDisplay = screen.getPrimaryDisplay();
