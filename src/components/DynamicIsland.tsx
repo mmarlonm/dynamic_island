@@ -1644,6 +1644,8 @@ export const DynamicIsland = () => {
             )}
           </div>
         </motion.div>
+      </div>
+
 
         {/* ── SETTINGS OVERLAY (larger, detached-style) ── */}
         <AnimatePresence>
@@ -1884,8 +1886,6 @@ export const DynamicIsland = () => {
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
-
         <div 
           className="absolute left-full ml-6 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]"
           onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
