@@ -14667,7 +14667,7 @@ function createWindow() {
           y: 0,
           width: Math.floor(w + BUFFER),
           height: Math.floor(h + BUFFER)
-        }, true);
+        }, false);
       }
     }
   });

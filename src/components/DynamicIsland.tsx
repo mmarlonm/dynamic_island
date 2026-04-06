@@ -422,6 +422,8 @@ export const DynamicIsland = () => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isCollapsing, setIsCollapsing] = useState(false); // Track active transition
+  const isExpanded = isHovered || isPinned || showSettings;
 
   useEffect(() => {
     let active = true;
@@ -609,10 +611,19 @@ export const DynamicIsland = () => {
     return () => clearTimeout(timer);
   }, [weatherCity]);
 
-  // Auto-close settings on mouse leave
+  // Auto-close settings on mouse leave and track collapse state
   useEffect(() => {
     if (!isHovered && !isPinned && showSettings) setShowSettings(false);
-  }, [isHovered, isPinned, showSettings]);
+    
+    // If we transition from expanded to collapsed, set a "collapsing" flag
+    if (!isExpanded) {
+      setIsCollapsing(true);
+      const timer = setTimeout(() => setIsCollapsing(false), 400); // Wait for sync
+      return () => clearTimeout(timer);
+    } else {
+      setIsCollapsing(false);
+    }
+  }, [isHovered, isPinned, showSettings, isExpanded]);
 
   const playAlarm = () => {
     try {
@@ -656,21 +667,31 @@ export const DynamicIsland = () => {
     return () => clearInterval(timerRef.current);
   }, [timerActive, timerTime]);
 
-  // ── Window geometry ──────────────────────────────────────────────────────
-  const isExpanded = isHovered || isPinned || showSettings;
+  // ── Window geometry (Enhanced Sync Logic) ─────────────────────────────────
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     if (!ipc) return;
-    const h = showSettings ? 600 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 650 : 220) : 120;
-    const w = (showSettings ? 720 : isExpanded ? (activeView === 'Multimedia' && showPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 380));
 
-    ipc.send('set-window-dimensions', { w, h });
-    // Robust expansion report: true ONLY if actually expanded (hovered/pinned)
-    const effectivelyExpanded = isExpanded || showSettings;
-    ipc.send('set-is-expanded', !!effectivelyExpanded);
-    ipc.send('set-is-super-pill', superPill && !effectivelyExpanded);
-    ipc.send('set-is-preview', showPreview && activeView === 'Multimedia' && effectivelyExpanded);
-  }, [isExpanded, showSettings, activeView, superPill, showPreview]);
+    const isLarge = isHovered || isPinned || showSettings;
+    const h = showSettings ? 600 : isLarge ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 650 : 220) : 120;
+    const w = (showSettings ? 720 : isLarge ? (activeView === 'Multimedia' && showPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440));
+
+    if (isLarge) {
+      // PRE-ALLOCATE SPACE: Grow window instantly so island can animate into it
+      ipc.send('set-window-dimensions', { w, h });
+    } else {
+      // SMOOTH RETRACTION: Wait for animation to visually finish before shrinking window
+      const timer = setTimeout(() => {
+        ipc.send('set-window-dimensions', { w, h });
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+
+    // Secondary reports (always instant for metadata)
+    ipc.send('set-is-expanded', isLarge);
+    ipc.send('set-is-super-pill', superPill && !isLarge);
+    ipc.send('set-is-preview', showPreview && activeView === 'Multimedia' && isLarge);
+  }, [isHovered, isPinned, showSettings, activeView, superPill, showPreview]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const handleMeetingCommand = (cmd: string) => {
@@ -741,12 +762,13 @@ export const DynamicIsland = () => {
             overflow: 'visible',
             color: isLightMode ? '#111' : '#fff',
             x: islandX,
+            willChange: 'width, height, transform',
           }}
           animate={{
-            width: (showSettings ? 720 : isExpanded ? (showPreview && activeView === 'Multimedia' ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 380)) + 68,
-            height: showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66),
+            width: (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
+            height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66),
           }}
-          transition={{ type: 'spring', stiffness: 220, damping: 26 }}
+          transition={{ type: 'spring', stiffness: 350, damping: 35, mass: 0.8 }}
         >
           {/* Call Bubble — Left side, outside hover zone */}
           <AnimatePresence>
@@ -777,7 +799,7 @@ export const DynamicIsland = () => {
                 animate={{ d: (() => {
                   const isLarge = showSettings || isExpanded;
                   const isPreview = showPreview && activeView === 'Multimedia';
-                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 380));
+                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440));
                   const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66);
                   const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
                   const totalW = w + 68;
@@ -838,7 +860,7 @@ export const DynamicIsland = () => {
                </linearGradient>
              </defs>
           </svg>
-          <div className="absolute inset-0 z-[-2] rounded-[34px]" style={{ backdropFilter: 'blur(80px)', background: 'transparent' }} />
+          <div className="absolute inset-0 z-[-2] rounded-[34px]" style={{ backdropFilter: 'blur(24px)', background: 'transparent' }} />
         </div>
 
         {/* Content wrapper — centered relative to the whole silhouette */}
@@ -857,7 +879,7 @@ export const DynamicIsland = () => {
           className={clsx('absolute inset-0 flex items-center', isExpanded && 'pointer-events-none')}
           onPointerDown={(e) => !isExpanded && dragControls.start(e)}
         >
-          {superPill ? (
+          {superPill && !isCollapsing ? (
             <div className="flex items-center justify-center w-full h-full" onPointerDown={(e) => e.stopPropagation()}>
               {(() => {
                 const mode = superPillMode === 'Auto' ? (media.isPlaying ? 'Multimedia' : 'Clima') : superPillMode;
@@ -892,14 +914,14 @@ export const DynamicIsland = () => {
                       <span className="text-[9px] font-bold truncate uppercase text-left" style={{ opacity: 0.35 }}>{media.isPlaying ? media.artist : 'Sin Actividad'}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4 mr-3">
                     {media.isPlaying && <SoundVisualizer isPlaying={media.isPlaying} />}
                     <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
                       <Cloud className="w-3 h-3 text-blue-400" />
                       <span className="tracking-tight">{weather.temp}°</span>
                       <span className="ml-1 opacity-40 font-bold">{weather.city}</span>
                     </div>
-                    <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter mr-1" style={{ opacity: 0.35 }}>
+                    <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter" style={{ opacity: 0.35 }}>
                       <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                       <span className="text-[7px] uppercase font-mono">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
                     </div>
