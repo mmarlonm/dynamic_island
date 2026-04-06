@@ -223,8 +223,8 @@ function createWindow() {
   const windowHeight = 600
 
   win = new BrowserWindow({
-    width: windowWidth,
-    height: windowHeight,
+    width: 360,
+    height: 120,
     x: 0,
     y: 0,
     frame: false,
@@ -237,6 +237,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       backgroundThrottling: false,
       autoplayPolicy: 'no-user-gesture-required',
+      webviewTag: true,
     },
   })
 
@@ -289,10 +290,30 @@ function createWindow() {
   let isExpandedMode = false;
   let currentIslandHeight = 75;
 
+  const BUFFER = 100;
+
+  ipcMain.on('set-window-dimensions', (event, { w, h }) => {
+    if (win && !win.isDestroyed()) {
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { width: screenWidth } = primaryDisplay.bounds;
+      const x = Math.floor((screenWidth - w) / 2) - (BUFFER / 2);
+      
+      if (w > 0 && h > 0) {
+        win.setBounds({ 
+          x: x, 
+          y: 0, 
+          width: Math.floor(w + BUFFER), 
+          height: Math.floor(h + BUFFER) 
+        }, true);
+      }
+    }
+  });
+
   ipcMain.on('set-window-height', (event, h) => {
     if (win && !win.isDestroyed()) {
       currentIslandHeight = h;
-      win.setSize(windowWidth, Math.max(h, 40), true);
+      // Also update dimensions with current known width if possible, 
+      // but let's stick to set-window-dimensions as the primary source now.
     }
   });
 

@@ -14609,11 +14609,9 @@ ipcMain.on("set-weather-location", (_e, loc) => {
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.bounds;
-  const windowWidth = width;
-  const windowHeight = 600;
   win = new BrowserWindow({
-    width: windowWidth,
-    height: windowHeight,
+    width: 360,
+    height: 120,
     x: 0,
     y: 0,
     frame: false,
@@ -14625,7 +14623,8 @@ function createWindow() {
     webPreferences: {
       preload: path$m.join(__dirname$1, "preload.js"),
       backgroundThrottling: false,
-      autoplayPolicy: "no-user-gesture-required"
+      autoplayPolicy: "no-user-gesture-required",
+      webviewTag: true
     }
   });
   win.setIgnoreMouseEvents(true, { forward: true });
@@ -14656,10 +14655,24 @@ function createWindow() {
       win.setIgnoreMouseEvents(ignore, { forward: true });
     }
   });
-  ipcMain.on("set-window-height", (event, h) => {
+  const BUFFER = 100;
+  ipcMain.on("set-window-dimensions", (event, { w, h }) => {
     if (win && !win.isDestroyed()) {
-      win.setSize(windowWidth, Math.max(h, 40), true);
+      const primaryDisplay2 = screen.getPrimaryDisplay();
+      const { width: screenWidth } = primaryDisplay2.bounds;
+      const x = Math.floor((screenWidth - w) / 2) - BUFFER / 2;
+      if (w > 0 && h > 0) {
+        win.setBounds({
+          x,
+          y: 0,
+          width: Math.floor(w + BUFFER),
+          height: Math.floor(h + BUFFER)
+        }, true);
+      }
     }
+  });
+  ipcMain.on("set-window-height", (event, h) => {
+    if (win && !win.isDestroyed()) ;
   });
   ipcMain.on("set-is-expanded", (event, expanded) => {
   });

@@ -4,7 +4,7 @@ import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
   EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
-  ChevronLeft, ChevronRight, Download
+  ChevronLeft, ChevronRight, Download, MessageCircle
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -382,11 +382,11 @@ export const DynamicIsland = () => {
   const [isHovered, setIsHovered]     = useState(false);
   const [isPinned, setIsPinned]       = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada' | 'Actualización'>('Resumen');
+  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada' | 'Actualización' | 'WhatsApp'>('Resumen');
   const [lang, setLang]               = useState<'es' | 'en' | 'zh'>('es');
   const [isLightMode, setIsLightMode] = useState(false);
   const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>('Moderno');
-  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas']);
+  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas', 'WhatsApp']);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '', id: '' });
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
@@ -395,11 +395,10 @@ export const DynamicIsland = () => {
   const [weather, setWeather]         = useState({ temp: '22', condition: 'Clear', city: 'Local' });
   const [volume, setVolume]           = useState(50);
   const [meeting, setMeeting] = useState({ isActive: false, app: '', device: '', micActive: false, camActive: false });
+  const whatsappWebviewRef = useRef<any>(null);
 
   // 0-100 system volume
 
-  // Timer state
-  const [proximity, setProximity]      = useState(0);
   const [timerTime, setTimerTime]      = useState(0);
   const [updateInfo, setUpdateInfo]    = useState<{version: string, status: 'idle' | 'available' | 'downloading' | 'ready'} | null>(null);
   const [updateProgress, setUpdateProgress] = useState(0);
@@ -497,10 +496,26 @@ export const DynamicIsland = () => {
   useEffect(() => { isHoveredRef.current = isHovered; }, [isHovered]);
   useEffect(() => { islandXRef.current = islandX; }, [islandX]);
 
+  useEffect(() => {
+    if (activeView === 'WhatsApp' && whatsappWebviewRef.current) {
+      const wv = whatsappWebviewRef.current;
+      const onDomReady = () => {
+        wv.insertCSS(`
+          body { zoom: 0.85 !important; }
+          header { display: none !important; } 
+          #side { background: transparent !important; }
+          ._3B79H { border: none !important; } 
+        `);
+      };
+      wv.addEventListener('dom-ready', onDomReady);
+      return () => wv.removeEventListener('dom-ready', onDomReady);
+    }
+  }, [activeView]);
+
   const T: Record<string, any> = {
-    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima' },
-    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location' },
-    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置' },
+    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp' },
+    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp' },
+    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp' },
   };
   const t = T[lang] ?? T.es;
 
@@ -646,10 +661,10 @@ export const DynamicIsland = () => {
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     if (!ipc) return;
-    const h = showSettings ? 600 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 480 : 220) : 120;
+    const h = showSettings ? 600 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 650 : 220) : 120;
+    const w = (showSettings ? 720 : isExpanded ? (activeView === 'Multimedia' && showPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 360));
 
-
-    ipc.send('set-window-height', h);
+    ipc.send('set-window-dimensions', { w, h });
     // Robust expansion report: true ONLY if actually expanded (hovered/pinned)
     const effectivelyExpanded = isExpanded || showSettings;
     ipc.send('set-is-expanded', !!effectivelyExpanded);
@@ -688,7 +703,7 @@ export const DynamicIsland = () => {
   const showNotifBubble = notifications.length > 0 && !isExpanded;
 
   return (
-    <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999]">
+    <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999] px-[50px] pb-[50px]">
       {/* Active analyzer layer: 1x1 pixel but "visible" to bypass background capture throttling */}
       <div className="absolute top-0 left-0 w-[1px] h-[1px] opacity-[0.01] pointer-events-none overflow-hidden z-[-1]">
         <SoundVisualizer isPlaying={media.isPlaying} onIntensity={setMusicIntensity} />
@@ -728,8 +743,8 @@ export const DynamicIsland = () => {
             x: islandX,
           }}
           animate={{
-            width: (showSettings ? 720 : isExpanded ? (showPreview && activeView === 'Multimedia' ? 840 : 680) : (superPill ? 72 : 360)) + 68,
-            height: showSettings ? 480 : isExpanded ? (activeView === 'Herramientas' || activeView === 'Llamada' ? 420 : 180) : (superPill ? 42 : 66),
+            width: (showSettings ? 720 : isExpanded ? (showPreview && activeView === 'Multimedia' ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 360)) + 68,
+            height: showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66),
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
         >
@@ -763,8 +778,8 @@ export const DynamicIsland = () => {
                 animate={{ d: (() => {
                   const isLarge = showSettings || isExpanded;
                   const isPreview = showPreview && activeView === 'Multimedia';
-                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : 680) : (superPill ? 72 : 360));
-                  const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada'].includes(activeView) ? 420 : 180) : (superPill ? 42 : 66);
+                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 360));
+                  const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66);
                   const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
                   const totalW = w + 68;
                   
@@ -947,10 +962,21 @@ export const DynamicIsland = () => {
              }
           }}
         >
-          {/* Tab bar */}
           <div className={clsx('flex items-center justify-between mb-2 pb-2 border-b shrink-0 z-50', isLightMode ? 'border-black/5' : 'border-white/5')}>
-            <div className="flex gap-1 items-center overflow-x-auto no-scrollbar max-w-[80%]" onPointerDown={(e) => e.stopPropagation()}>
-              {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas'] as const).map(v =>
+            <div 
+              className="flex-1 flex gap-1 items-center overflow-x-auto no-scrollbar scroll-smooth" 
+              style={{ 
+                maskImage: 'linear-gradient(to right, black 92%, transparent 100%)', 
+                WebkitMaskImage: 'linear-gradient(to right, black 92%, transparent 100%)' 
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onWheel={(e) => {
+                if (e.deltaY !== 0) {
+                  e.currentTarget.scrollLeft += e.deltaY;
+                }
+              }}
+            >
+              {(['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'WhatsApp', 'Sistema', 'Llamada'] as const).map(v =>
                 visibleTabs.includes(v) && (
                   <button
                     key={v}
@@ -968,13 +994,13 @@ export const DynamicIsland = () => {
                     {v === 'Notificación' && <Bell      className="w-2.5 h-2.5" />}
                     {v === 'Herramientas' && <Timer     className="w-2.5 h-2.5" />}
                     {v === 'Llamada'      && <Video      className="w-2.5 h-2.5" />}
-                    {t[v === 'Notificación' ? 'notificacion' : v.toLowerCase()] || v}
+                    {v === 'WhatsApp'     && <MessageCircle className="w-2.5 h-2.5" />}
+                    {t[v === 'Notificación' ? 'notificacion' : (v === 'WhatsApp' ? 'whatsapp' : (v === 'Herramientas' ? 'timer' : v.toLowerCase()))] || v}
                   </button>
                 )
               )}
             </div>
             <div className="flex items-center gap-2.5 shrink-0 px-2">
-              <SoundVisualizer isPlaying={media.isPlaying} />
               <button 
                 onClick={() => setIsPinned(p => !p)} 
                 className={clsx('p-1.5 rounded-xl transition-all border', isPinned ? 'bg-blue-500 text-white border-blue-400' : 'opacity-40 hover:opacity-100 border-transparent hover:bg-white/10')}
@@ -1329,6 +1355,10 @@ export const DynamicIsland = () => {
                   {notifications.length > 0 ? notifications.map(n => (
                     <div key={n.id} onClick={() => {
                       (window as any).ipcRenderer?.send('dismiss-notification', n.id);
+                      if (n.app === 'WhatsApp' && visibleTabs.includes('WhatsApp')) {
+                        setActiveView('WhatsApp');
+                        setIsPinned(true);
+                      }
                       setNotifications(p => p.filter(x => x.id !== n.id));
                     }} className="rounded-[16px] border p-3 flex items-center gap-3 cursor-pointer transition-all hover:!bg-white/10" style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.06)' }}>
                       <div className="w-8 h-8 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500 shrink-0"><Bell className="w-4 h-4" /></div>
@@ -1463,6 +1493,30 @@ export const DynamicIsland = () => {
               </div>
             )}
 
+            {/* WHATSAPP */}
+            {activeView === 'WhatsApp' && (
+              <div className="absolute inset-0 flex flex-col p-2">
+                <div className="flex-1 rounded-[40px] overflow-hidden border border-white/10 bg-black shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative flex flex-col">
+                  {(window as any).ipcRenderer && (
+                    <webview 
+                      ref={whatsappWebviewRef}
+                      src="https://web.whatsapp.com" 
+                      className="flex-1 w-full"
+                      useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                      style={{ width: '100%', height: 'calc(100% + 50px)', marginTop: '-50px' }} 
+                    />
+                  )}
+                  {/* Overlay for "Loading/Login" aesthetic or protection */}
+                  <div className="absolute top-0 right-0 p-4 pointer-events-none">
+                    <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-full backdrop-blur-md">
+                      <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      <span className="text-[8px] font-black uppercase text-green-400 tracking-widest px-1">WhatsApp Secure</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ACTUALIZACIÓN REMOTA */}
             {activeView === 'Actualización' && updateInfo && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="absolute inset-0 flex flex-col gap-4 p-8">
@@ -1586,7 +1640,7 @@ export const DynamicIsland = () => {
                 <div className="flex flex-col gap-4 p-8" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
                   <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.visibility}</span>
                   <div className="flex flex-col gap-2">
-                    {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas'] as const).map(v => (
+                    {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'WhatsApp', 'Herramientas'] as const).map(v => (
                       <button
                         key={v}
                         onClick={() => toggleTab(v)}
