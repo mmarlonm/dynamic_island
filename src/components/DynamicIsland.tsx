@@ -497,8 +497,8 @@ export const DynamicIsland = () => {
   useEffect(() => { islandXRef.current = islandX; }, [islandX]);
 
   useEffect(() => {
-    if (activeView === 'WhatsApp' && whatsappWebviewRef.current) {
-      const wv = whatsappWebviewRef.current;
+    const wv = whatsappWebviewRef.current;
+    if (wv) {
       const onDomReady = () => {
         wv.insertCSS(`
           body { zoom: 0.85 !important; }
@@ -510,7 +510,7 @@ export const DynamicIsland = () => {
       wv.addEventListener('dom-ready', onDomReady);
       return () => wv.removeEventListener('dom-ready', onDomReady);
     }
-  }, [activeView]);
+  }, []);
 
   const T: Record<string, any> = {
     es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp' },
@@ -662,7 +662,7 @@ export const DynamicIsland = () => {
     const ipc = (window as any).ipcRenderer;
     if (!ipc) return;
     const h = showSettings ? 600 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 650 : 220) : 120;
-    const w = (showSettings ? 720 : isExpanded ? (activeView === 'Multimedia' && showPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 360));
+    const w = (showSettings ? 720 : isExpanded ? (activeView === 'Multimedia' && showPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 380));
 
     ipc.send('set-window-dimensions', { w, h });
     // Robust expansion report: true ONLY if actually expanded (hovered/pinned)
@@ -743,7 +743,7 @@ export const DynamicIsland = () => {
             x: islandX,
           }}
           animate={{
-            width: (showSettings ? 720 : isExpanded ? (showPreview && activeView === 'Multimedia' ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 360)) + 68,
+            width: (showSettings ? 720 : isExpanded ? (showPreview && activeView === 'Multimedia' ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 380)) + 68,
             height: showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66),
           }}
           transition={{ type: 'spring', stiffness: 220, damping: 26 }}
@@ -769,8 +769,7 @@ export const DynamicIsland = () => {
             )}
           </AnimatePresence>
         {/* UNIFIED BACKGROUND SVG LAYER — Production Fix & Subtle Drop */}
-        <div className="absolute inset-0 pointer-events-none z-[-1] overflow-visible" 
-             style={{ filter: isLightMode ? 'drop-shadow(0 20px 40px rgba(0,0,0,0.12))' : 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }}>
+        <div className="absolute inset-0 pointer-events-none z-[-1] overflow-visible">
           <svg width="100%" height="100%" shapeRendering="geometricPrecision" style={{ display: 'block', overflow: 'visible' }}>
 
              <motion.path
@@ -778,7 +777,7 @@ export const DynamicIsland = () => {
                 animate={{ d: (() => {
                   const isLarge = showSettings || isExpanded;
                   const isPreview = showPreview && activeView === 'Multimedia';
-                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 360));
+                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 380));
                   const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66);
                   const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
                   const totalW = w + 68;
@@ -900,7 +899,7 @@ export const DynamicIsland = () => {
                       <span className="tracking-tight">{weather.temp}°</span>
                       <span className="ml-1 opacity-40 font-bold">{weather.city}</span>
                     </div>
-                    <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter" style={{ opacity: 0.35 }}>
+                    <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter mr-1" style={{ opacity: 0.35 }}>
                       <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                       <span className="text-[7px] uppercase font-mono">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
                     </div>
@@ -1493,29 +1492,28 @@ export const DynamicIsland = () => {
               </div>
             )}
 
-            {/* WHATSAPP */}
-            {activeView === 'WhatsApp' && (
-              <div className="absolute inset-0 flex flex-col p-2">
-                <div className="flex-1 rounded-[40px] overflow-hidden border border-white/10 bg-black shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative flex flex-col">
-                  {(window as any).ipcRenderer && (
-                    <webview 
-                      ref={whatsappWebviewRef}
-                      src="https://web.whatsapp.com" 
-                      className="flex-1 w-full"
-                      useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                      style={{ width: '100%', height: 'calc(100% + 50px)', marginTop: '-50px' }} 
-                    />
-                  )}
-                  {/* Overlay for "Loading/Login" aesthetic or protection */}
-                  <div className="absolute top-0 right-0 p-4 pointer-events-none">
-                    <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-full backdrop-blur-md">
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                      <span className="text-[8px] font-black uppercase text-green-400 tracking-widest px-1">WhatsApp Secure</span>
-                    </div>
+            {/* WHATSAPP (Keep mounted for session persistence) */}
+            <div className={clsx("absolute inset-0 flex flex-col transition-opacity", activeView === 'WhatsApp' ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")}>
+              <div className="flex-1 rounded-[34px] overflow-hidden border border-white/5 bg-black relative flex flex-col">
+                {(window as any).ipcRenderer && (
+                  <webview 
+                    ref={whatsappWebviewRef}
+                    src="https://web.whatsapp.com" 
+                    className="flex-1 w-full"
+                    useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                    style={{ width: '100%', height: 'calc(100% + 50px)', marginTop: '-50px' }} 
+                    partition="persist:whatsapp"
+                  />
+                )}
+                {/* Overlay for "Loading/Login" aesthetic or protection */}
+                <div className="absolute top-0 right-0 p-4 pointer-events-none">
+                  <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-full backdrop-blur-md">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-[8px] font-black uppercase text-green-400 tracking-widest px-1">WhatsApp Secure</span>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* ACTUALIZACIÓN REMOTA */}
             {activeView === 'Actualización' && updateInfo && (
