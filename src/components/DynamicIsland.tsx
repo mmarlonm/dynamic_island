@@ -434,6 +434,7 @@ export const DynamicIsland = () => {
   useEffect(() => {
     let active = true;
     let timer: any;
+    let activeStream: MediaStream | null = null;
 
     const startStream = async () => {
       // Cleanup old stream
@@ -469,6 +470,7 @@ export const DynamicIsland = () => {
           } as any);
 
           if (active) {
+            activeStream = s;
             setStream(s);
           } else {
             s.getTracks().forEach((t: MediaStreamTrack) => t.stop());
@@ -483,6 +485,9 @@ export const DynamicIsland = () => {
     return () => { 
       active = false; 
       clearTimeout(timer);
+      if (activeStream) {
+        (activeStream as MediaStream).getTracks().forEach(t => t.stop());
+      }
     };
   }, [showPreview, media.title, media.artist]);
 
@@ -579,7 +584,23 @@ export const DynamicIsland = () => {
       setMeeting(data);
     });
 
-    return () => clearInterval(clock);
+    return () => {
+      clearInterval(clock);
+      if (ipc) {
+        ipc.removeAllListeners('media-update');
+        ipc.removeAllListeners('notification-sync');
+        ipc.removeAllListeners('notification-remove');
+        ipc.removeAllListeners('update-available');
+        ipc.removeAllListeners('update-progress');
+        ipc.removeAllListeners('update-ready');
+        ipc.removeAllListeners('system-update');
+        ipc.removeAllListeners('weather-update');
+        ipc.removeAllListeners('volume-update');
+        ipc.removeAllListeners('mouse-proximity');
+        ipc.removeAllListeners('meeting-update');
+        ipc.send('set-ignore-mouse-events', true);
+      }
+    };
   }, []);
 
   // Sync weather city with main process (debounced)
@@ -767,7 +788,7 @@ export const DynamicIsland = () => {
           <AnimatePresence>
             {meeting.isActive && !isExpanded && (
               <div 
-                className="absolute right-full mr-10 top-1 pointer-events-auto translate-y-[-2px]"
+                className="absolute right-full mr-0 top-1 pointer-events-auto translate-y-[-2px]"
                 onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
                 onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
               >
@@ -1863,7 +1884,7 @@ export const DynamicIsland = () => {
             )}
           </AnimatePresence>
         <div 
-          className="absolute left-full ml-6 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]"
+          className="absolute left-full ml-0 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]"
           onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
           onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
         >

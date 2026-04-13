@@ -148,6 +148,10 @@ if (process.platform === 'win32') {
 let win: BrowserWindow | null;
 let isExpandedMode = false;
 let isSuperPill = false;
+let isPreviewMode = false;
+let currentIslandX = 0;
+let currentWidth = 440;
+let currentHeight = 66;
 let isInMeetingApp = false
 let currentMeetingApp = 'Teams'
 let lastHasCam = false, lastHasMic = false
@@ -218,15 +222,25 @@ ipcMain.on('set-weather-location', (_e, loc: string) => {
   fetchWeather();
 });
 
+// ── Global State Sync (v5.3 Stability) ──────────────────────────────────────
+ipcMain.on('set-is-expanded', (_, expanded) => { isExpandedMode = expanded; });
+ipcMain.on('set-is-super-pill', (_, active) => { isSuperPill = active; });
+ipcMain.on('set-is-preview', (_, preview) => { isPreviewMode = preview; });
+ipcMain.on('update-island-pos', (_, x) => { currentIslandX = x; });
+ipcMain.on('set-window-dimensions', (_, d) => {
+  currentWidth = d.w;
+  currentHeight = d.h;
+});
+
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.bounds;
+  const { width, height, x, y } = primaryDisplay.bounds;
 
   win = new BrowserWindow({
     width: width,
     height: 800,
-    x: 0,
-    y: 0,
+    x: x,
+    y: y,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -242,47 +256,48 @@ function createWindow() {
     },
   });
 
-  // Industrial Standard: Global Ignore with Forwarding
-  win.setIgnoreMouseEvents(true, { forward: true });
-  win.setAlwaysOnTop(true, 'screen-saver');
-
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
   } else {
     win.loadFile(path.join(RENDERER_DIST, 'index.html'));
   }
 
+  // Failsafe Visibility (v5.3.5): Start interactive and visible
+  win.showInactive();
+  win.setIgnoreMouseEvents(false);
+  win.setAlwaysOnTop(true, 'screen-saver');
+
   // ── Background Services Initialization ─────────────────────────────────────
   setTimeout(() => {
     if (typeof startNotifMonitor === 'function') startNotifMonitor();
     requestNotificationAccess();
+    if (volInterval) clearTimeout(volInterval);
     pollVol(); // Start volume polling
     autoUpdater.checkForUpdatesAndNotify().catch(e => console.error('Update check failed: ' + e));
   }, 1000);
 
-  // ── High-Performance Hybrid Radar (30ms) ───────────────────────────────────
-  let isExpandedMode = false;
-  let isSuperPill = false;
-  let currentIslandX = 0; // Current relative offset from center
-  const screenCenterX = width / 2;
-
-  ipcMain.on('set-is-expanded', (_, expanded) => { isExpandedMode = expanded; });
-  ipcMain.on('set-is-super-pill', (_, active) => { isSuperPill = active; });
-  ipcMain.on('update-island-pos', (_, x) => { currentIslandX = x; });
+  const screenCenterX = x + (width / 2);
+  if (proximityInterval) clearInterval(proximityInterval);
 
   proximityInterval = setInterval(() => {
-    if (!win || win.isDestroyed()) return;
-    const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
-    
-    // Dynamic Hitbox Calculation
-    const islandPhysicalX = screenCenterX + currentIslandX;
-    const radius = isExpandedMode ? 500 : (isSuperPill ? 80 : 250);
-    const heightLimit = isExpandedMode ? 700 : 120;
+    try {
+      if (!win || win.isDestroyed()) return;
+      const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
+      
+      // Dynamic Hitbox PERFECT Sync (v5.3.3)
+      const islandPhysicalX = screenCenterX + (currentIslandX || 0);
+      const halfW = (currentWidth || 440) / 2;
+      const h = (currentHeight || 66);
 
-    const isOverPill = Math.abs(mouseX - islandPhysicalX) < radius && mouseY < heightLimit;
-    
-    // Smooth Transition: Only toggle if state actually changes to avoid IPC overhead
-    win.setIgnoreMouseEvents(!isOverPill, { forward: true });
+      // Add 10px padding for smooth hover detection
+      const isOverPill = Math.abs(mouseX - islandPhysicalX) < (halfW + 15) && 
+                         mouseY >= (y - 5) && 
+                         mouseY < (y + h + 10);
+      
+      win.setIgnoreMouseEvents(!isOverPill, { forward: true });
+    } catch (e) {
+      // Silence intermittent screen-point errors
+    }
   }, 30);
 
   win.on('closed', () => {
@@ -394,22 +409,26 @@ ipcMain.handle('end-call', async () => {
 // System Monitoring
 let prevCpus = os.cpus();
 systemUpdateInterval = setInterval(() => {
-  if (!win || win.isDestroyed()) return;
-  const totalMem = os.totalmem();
-  const freeMem = os.freemem();
-  const ramUsage = ((totalMem - freeMem) / totalMem) * 100;
-  const currCpus = os.cpus();
-  let totalDiff = 0, idleDiff = 0;
-  for (let i = 0; i < currCpus.length; i++) {
-    const prev = prevCpus[i].times, curr = currCpus[i].times;
-    const prevTotal = Object.values(prev).reduce((a: number, b: number) => a + b, 0);
-    const currTotal = Object.values(curr).reduce((a: number, b: number) => a + b, 0);
-    totalDiff += (currTotal as number) - (prevTotal as number);
-    idleDiff += curr.idle - prev.idle;
+  try {
+    if (!win || win.isDestroyed()) return;
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const ramUsage = ((totalMem - freeMem) / totalMem) * 100;
+    const currCpus = os.cpus();
+    let totalDiff = 0, idleDiff = 0;
+    for (let i = 0; i < currCpus.length; i++) {
+        const prev = prevCpus[i].times, curr = currCpus[i].times;
+        const prevTotal = Object.values(prev).reduce((a: number, b: number) => a + b, 0);
+        const currTotal = Object.values(curr).reduce((a: number, b: number) => a + b, 0);
+        totalDiff += (currTotal as number) - (prevTotal as number);
+        idleDiff += curr.idle - prev.idle;
+    }
+    const cpuUsage = totalDiff > 0 ? (1 - idleDiff / totalDiff) * 100 : 0;
+    prevCpus = currCpus;
+    safeSend(win, 'system-update', { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
+  } catch (e) {
+    // Prevent system monitor crashes from affecting main thread
   }
-  const cpuUsage = totalDiff > 0 ? (1 - idleDiff / totalDiff) * 100 : 0;
-  prevCpus = currCpus;
-  safeSend(win, 'system-update', { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
 }, 2000);
 
 // Resource Path Helper for Production

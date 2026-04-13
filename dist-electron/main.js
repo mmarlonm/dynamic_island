@@ -14551,6 +14551,9 @@ if (process.platform === "win32") {
   app.setAppUserModelId("com.notchly.app");
 }
 let win;
+let currentIslandX = 0;
+let currentWidth = 440;
+let currentHeight = 66;
 let currentMeetingApp = "Teams";
 let currentMicState = false;
 let isUserMuted = false;
@@ -14606,14 +14609,27 @@ ipcMain.on("set-weather-location", (_e, loc) => {
   weatherLocation = loc || "";
   fetchWeather();
 });
+ipcMain.on("set-is-expanded", (_, expanded) => {
+});
+ipcMain.on("set-is-super-pill", (_, active) => {
+});
+ipcMain.on("set-is-preview", (_, preview) => {
+});
+ipcMain.on("update-island-pos", (_, x) => {
+  currentIslandX = x;
+});
+ipcMain.on("set-window-dimensions", (_, d) => {
+  currentWidth = d.w;
+  currentHeight = d.h;
+});
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.bounds;
+  const { width, height, x, y } = primaryDisplay.bounds;
   win = new BrowserWindow({
     width,
     height: 800,
-    x: 0,
-    y: 0,
+    x,
+    y,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -14629,40 +14645,34 @@ function createWindow() {
       webviewTag: true
     }
   });
-  win.setIgnoreMouseEvents(true, { forward: true });
-  win.setAlwaysOnTop(true, "screen-saver");
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
   } else {
     win.loadFile(path$m.join(RENDERER_DIST, "index.html"));
   }
+  win.showInactive();
+  win.setIgnoreMouseEvents(false);
+  win.setAlwaysOnTop(true, "screen-saver");
   setTimeout(() => {
     if (typeof startNotifMonitor === "function") startNotifMonitor();
     requestNotificationAccess();
+    if (volInterval) clearTimeout(volInterval);
     pollVol();
     main$1.autoUpdater.checkForUpdatesAndNotify().catch((e) => console.error("Update check failed: " + e));
   }, 1e3);
-  let isExpandedMode2 = false;
-  let isSuperPill2 = false;
-  let currentIslandX = 0;
-  const screenCenterX = width / 2;
-  ipcMain.on("set-is-expanded", (_, expanded) => {
-    isExpandedMode2 = expanded;
-  });
-  ipcMain.on("set-is-super-pill", (_, active) => {
-    isSuperPill2 = active;
-  });
-  ipcMain.on("update-island-pos", (_, x) => {
-    currentIslandX = x;
-  });
+  const screenCenterX = x + width / 2;
+  if (proximityInterval) clearInterval(proximityInterval);
   proximityInterval = setInterval(() => {
-    if (!win || win.isDestroyed()) return;
-    const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
-    const islandPhysicalX = screenCenterX + currentIslandX;
-    const radius = isExpandedMode2 ? 500 : isSuperPill2 ? 80 : 250;
-    const heightLimit = isExpandedMode2 ? 700 : 120;
-    const isOverPill = Math.abs(mouseX - islandPhysicalX) < radius && mouseY < heightLimit;
-    win.setIgnoreMouseEvents(!isOverPill, { forward: true });
+    try {
+      if (!win || win.isDestroyed()) return;
+      const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
+      const islandPhysicalX = screenCenterX + (currentIslandX || 0);
+      const halfW = (currentWidth || 440) / 2;
+      const h = currentHeight || 66;
+      const isOverPill = Math.abs(mouseX - islandPhysicalX) < halfW + 15 && mouseY >= y - 5 && mouseY < y + h + 10;
+      win.setIgnoreMouseEvents(!isOverPill, { forward: true });
+    } catch (e) {
+    }
   }, 30);
   win.on("closed", () => {
     if (proximityInterval) clearInterval(proximityInterval);
@@ -14764,22 +14774,25 @@ ipcMain.handle("end-call", async () => {
 });
 let prevCpus = os$1.cpus();
 systemUpdateInterval = setInterval(() => {
-  if (!win || win.isDestroyed()) return;
-  const totalMem = os$1.totalmem();
-  const freeMem = os$1.freemem();
-  const ramUsage = (totalMem - freeMem) / totalMem * 100;
-  const currCpus = os$1.cpus();
-  let totalDiff = 0, idleDiff = 0;
-  for (let i = 0; i < currCpus.length; i++) {
-    const prev = prevCpus[i].times, curr = currCpus[i].times;
-    const prevTotal = Object.values(prev).reduce((a, b) => a + b, 0);
-    const currTotal = Object.values(curr).reduce((a, b) => a + b, 0);
-    totalDiff += currTotal - prevTotal;
-    idleDiff += curr.idle - prev.idle;
+  try {
+    if (!win || win.isDestroyed()) return;
+    const totalMem = os$1.totalmem();
+    const freeMem = os$1.freemem();
+    const ramUsage = (totalMem - freeMem) / totalMem * 100;
+    const currCpus = os$1.cpus();
+    let totalDiff = 0, idleDiff = 0;
+    for (let i = 0; i < currCpus.length; i++) {
+      const prev = prevCpus[i].times, curr = currCpus[i].times;
+      const prevTotal = Object.values(prev).reduce((a, b) => a + b, 0);
+      const currTotal = Object.values(curr).reduce((a, b) => a + b, 0);
+      totalDiff += currTotal - prevTotal;
+      idleDiff += curr.idle - prev.idle;
+    }
+    const cpuUsage = totalDiff > 0 ? (1 - idleDiff / totalDiff) * 100 : 0;
+    prevCpus = currCpus;
+    safeSend(win, "system-update", { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
+  } catch (e) {
   }
-  const cpuUsage = totalDiff > 0 ? (1 - idleDiff / totalDiff) * 100 : 0;
-  prevCpus = currCpus;
-  safeSend(win, "system-update", { cpu: cpuUsage, ram: ramUsage, net: 1.5 + Math.random() * 2 });
 }, 2e3);
 const getResPath = (relPath) => {
   if (app.isPackaged) {
