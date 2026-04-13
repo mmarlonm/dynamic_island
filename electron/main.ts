@@ -145,7 +145,9 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.notchly.app');
 }
 
-let win: BrowserWindow | null
+let win: BrowserWindow | null;
+let isExpandedMode = false;
+let isSuperPill = false;
 let isInMeetingApp = false
 let currentMeetingApp = 'Teams'
 let lastHasCam = false, lastHasMic = false
@@ -217,14 +219,12 @@ ipcMain.on('set-weather-location', (_e, loc: string) => {
 });
 
 function createWindow() {
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { width, height } = primaryDisplay.bounds
-  const windowWidth = width 
-  const windowHeight = 600
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.bounds;
 
   win = new BrowserWindow({
-    width: 360,
-    height: 120,
+    width: width,
+    height: 800,
     x: 0,
     y: 0,
     frame: false,
@@ -233,35 +233,57 @@ function createWindow() {
     skipTaskbar: true,
     hasShadow: false,
     resizable: false,
+    movable: false, // Window itself doesn't move, island moves inside
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       backgroundThrottling: false,
       autoplayPolicy: 'no-user-gesture-required',
       webviewTag: true,
     },
-  })
+  });
 
-  // Essential for transparency visibility
-  win.setIgnoreMouseEvents(true, { forward: true })
+  // Industrial Standard: Global Ignore with Forwarding
+  win.setIgnoreMouseEvents(true, { forward: true });
+  win.setAlwaysOnTop(true, 'screen-saver');
 
-  // Initialize monitors after a small delay to ensure window is ready
+  if (VITE_DEV_SERVER_URL) {
+    win.loadURL(VITE_DEV_SERVER_URL);
+  } else {
+    win.loadFile(path.join(RENDERER_DIST, 'index.html'));
+  }
+
+  // ── Background Services Initialization ─────────────────────────────────────
   setTimeout(() => {
     if (typeof startNotifMonitor === 'function') startNotifMonitor();
     requestNotificationAccess();
+    pollVol(); // Start volume polling
     autoUpdater.checkForUpdatesAndNotify().catch(e => console.error('Update check failed: ' + e));
   }, 1000);
 
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL)
-    // win.webContents.openDevTools({ mode: 'detach' }) // Optional: uncomment if needed
-  } else {
-    win.loadFile(path.join(RENDERER_DIST, 'index.html'))
-  }
+  // ── High-Performance Hybrid Radar (30ms) ───────────────────────────────────
+  let isExpandedMode = false;
+  let isSuperPill = false;
+  let currentIslandX = 0; // Current relative offset from center
+  const screenCenterX = width / 2;
 
-  win.webContents.on('did-finish-load', () => {
-    // Start volume polling once UI is ready
-    pollVol(); 
-  });
+  ipcMain.on('set-is-expanded', (_, expanded) => { isExpandedMode = expanded; });
+  ipcMain.on('set-is-super-pill', (_, active) => { isSuperPill = active; });
+  ipcMain.on('update-island-pos', (_, x) => { currentIslandX = x; });
+
+  proximityInterval = setInterval(() => {
+    if (!win || win.isDestroyed()) return;
+    const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
+    
+    // Dynamic Hitbox Calculation
+    const islandPhysicalX = screenCenterX + currentIslandX;
+    const radius = isExpandedMode ? 500 : (isSuperPill ? 80 : 250);
+    const heightLimit = isExpandedMode ? 700 : 120;
+
+    const isOverPill = Math.abs(mouseX - islandPhysicalX) < radius && mouseY < heightLimit;
+    
+    // Smooth Transition: Only toggle if state actually changes to avoid IPC overhead
+    win.setIgnoreMouseEvents(!isOverPill, { forward: true });
+  }, 30);
 
   win.on('closed', () => {
     if (proximityInterval) clearInterval(proximityInterval);
@@ -272,32 +294,11 @@ function createWindow() {
     win = null;
   });
 
-  // Poll weather every 20 minutes
-  fetchWeather();
-  weatherInterval = setInterval(fetchWeather, 20 * 60 * 1000);
-
-
-
-
-  ipcMain.on('set-ignore-mouse-events', (event, ignore) => {
-    if (win && !win.isDestroyed()) {
-      // Robust Logic: If ignore is true, we ONLY ignore if not in expanded state
-      // (This is a safety net in case the renderer sends stale ignore true)
-      win.setIgnoreMouseEvents(ignore, { forward: true })
-    }
-  })
-
-  let isExpandedMode = false;
-  let currentIslandHeight = 75;
-
-  const BUFFER = 100;
-
   ipcMain.handle('get-auto-launch', () => {
     return app.getLoginItemSettings().openAtLogin;
   });
 
   ipcMain.on('set-auto-launch', (event, value) => {
-    // Only works in packaged app, but we can set it for testing logic
     try {
       app.setLoginItemSettings({
         openAtLogin: value,
@@ -308,71 +309,9 @@ function createWindow() {
     }
   });
 
-  ipcMain.on('set-window-dimensions', (event, { w, h }) => {
-    if (win && !win.isDestroyed()) {
-      const primaryDisplay = screen.getPrimaryDisplay();
-      const { width: screenWidth } = primaryDisplay.bounds;
-      const x = Math.floor((screenWidth - w) / 2) - (BUFFER / 2);
-      
-      if (w > 0 && h > 0) {
-        win.setBounds({ 
-          x: x, 
-          y: 0, 
-          width: Math.floor(w + BUFFER), 
-          height: Math.floor(h + BUFFER) 
-        }, false);
-      }
-    }
-  });
-
-  ipcMain.on('set-window-height', (event, h) => {
-    if (win && !win.isDestroyed()) {
-      currentIslandHeight = h;
-      // Also update dimensions with current known width if possible, 
-      // but let's stick to set-window-dimensions as the primary source now.
-    }
-  });
-
-  ipcMain.on('set-is-expanded', (event, expanded) => {
-    isExpandedMode = expanded;
-  });
-
-  let isPreviewMode = false;
-  ipcMain.on('set-is-preview', (event, preview) => {
-    isPreviewMode = preview;
-  });
-
-  let currentIslandX = 0;
-  let isSuperPill = false;
-  ipcMain.on('update-island-pos', (event, x) => {
-    currentIslandX = x;
-  });
-  ipcMain.on('set-is-super-pill', (event, active) => {
-    isSuperPill = active;
-  });
-
-
-  proximityInterval = setInterval(() => {
-    if (!win || win.isDestroyed()) return;
-    const { x, y } = screen.getCursorScreenPoint();
-    const b = win.getBounds();
-
-    // Calculate relative to the CURRENT island center (center + offset)
-    const islandCenterX = b.x + b.width / 2 + currentIslandX;
-    const relX = x - islandCenterX;
-    const relY = y - b.y;
-    const [winW, winH] = win.getSize();
-    
-    // Body proximity: matched to actual component widths
-    // Collapsed: 360+68=428 (214 radius), Expanded: 680+68=748 (374 radius), SuperPill: 72+68=140 (70 radius), Preview: 840+68=908 (454 radius)
-    const islandRadius = isExpandedMode ? (isPreviewMode ? 455 : 375) : (isSuperPill ? 72 : 215); 
-    const isOverIsland = Math.abs(relX) <= islandRadius;
-    
-    // Bubble zones move with the island
-    // Left bubble (Call): Starts at -220px (180 center + 40 margin) up to -380px (if expanded to 160px)
-    // Right bubbles (Timer/Notif): Starts at 204px (180 center + 24 margin) up to ~260px (56px width)
-    safeSend(win, 'mouse-proximity', { relX, relY });
-  }, 35);
+  // Re-run weather polling
+  fetchWeather();
+  weatherInterval = setInterval(fetchWeather, 20 * 60 * 1000);
 }
 
 const singleInstanceLock = app.requestSingleInstanceLock()

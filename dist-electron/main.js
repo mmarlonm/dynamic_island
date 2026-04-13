@@ -14610,8 +14610,8 @@ function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.bounds;
   win = new BrowserWindow({
-    width: 360,
-    height: 120,
+    width,
+    height: 800,
     x: 0,
     y: 0,
     frame: false,
@@ -14620,6 +14620,8 @@ function createWindow() {
     skipTaskbar: true,
     hasShadow: false,
     resizable: false,
+    movable: false,
+    // Window itself doesn't move, island moves inside
     webPreferences: {
       preload: path$m.join(__dirname$1, "preload.js"),
       backgroundThrottling: false,
@@ -14628,19 +14630,40 @@ function createWindow() {
     }
   });
   win.setIgnoreMouseEvents(true, { forward: true });
-  setTimeout(() => {
-    if (typeof startNotifMonitor === "function") startNotifMonitor();
-    requestNotificationAccess();
-    main$1.autoUpdater.checkForUpdatesAndNotify().catch((e) => console.error("Update check failed: " + e));
-  }, 1e3);
+  win.setAlwaysOnTop(true, "screen-saver");
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
   } else {
     win.loadFile(path$m.join(RENDERER_DIST, "index.html"));
   }
-  win.webContents.on("did-finish-load", () => {
+  setTimeout(() => {
+    if (typeof startNotifMonitor === "function") startNotifMonitor();
+    requestNotificationAccess();
     pollVol();
+    main$1.autoUpdater.checkForUpdatesAndNotify().catch((e) => console.error("Update check failed: " + e));
+  }, 1e3);
+  let isExpandedMode2 = false;
+  let isSuperPill2 = false;
+  let currentIslandX = 0;
+  const screenCenterX = width / 2;
+  ipcMain.on("set-is-expanded", (_, expanded) => {
+    isExpandedMode2 = expanded;
   });
+  ipcMain.on("set-is-super-pill", (_, active) => {
+    isSuperPill2 = active;
+  });
+  ipcMain.on("update-island-pos", (_, x) => {
+    currentIslandX = x;
+  });
+  proximityInterval = setInterval(() => {
+    if (!win || win.isDestroyed()) return;
+    const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
+    const islandPhysicalX = screenCenterX + currentIslandX;
+    const radius = isExpandedMode2 ? 500 : isSuperPill2 ? 80 : 250;
+    const heightLimit = isExpandedMode2 ? 700 : 120;
+    const isOverPill = Math.abs(mouseX - islandPhysicalX) < radius && mouseY < heightLimit;
+    win.setIgnoreMouseEvents(!isOverPill, { forward: true });
+  }, 30);
   win.on("closed", () => {
     if (proximityInterval) clearInterval(proximityInterval);
     if (systemUpdateInterval) clearInterval(systemUpdateInterval);
@@ -14648,14 +14671,6 @@ function createWindow() {
     if (weatherInterval) clearInterval(weatherInterval);
     win = null;
   });
-  fetchWeather();
-  weatherInterval = setInterval(fetchWeather, 20 * 60 * 1e3);
-  ipcMain.on("set-ignore-mouse-events", (event, ignore) => {
-    if (win && !win.isDestroyed()) {
-      win.setIgnoreMouseEvents(ignore, { forward: true });
-    }
-  });
-  const BUFFER = 100;
   ipcMain.handle("get-auto-launch", () => {
     return app.getLoginItemSettings().openAtLogin;
   });
@@ -14669,44 +14684,8 @@ function createWindow() {
       console.error("Failed to set login item settings:", e);
     }
   });
-  ipcMain.on("set-window-dimensions", (event, { w, h }) => {
-    if (win && !win.isDestroyed()) {
-      const primaryDisplay2 = screen.getPrimaryDisplay();
-      const { width: screenWidth } = primaryDisplay2.bounds;
-      const x = Math.floor((screenWidth - w) / 2) - BUFFER / 2;
-      if (w > 0 && h > 0) {
-        win.setBounds({
-          x,
-          y: 0,
-          width: Math.floor(w + BUFFER),
-          height: Math.floor(h + BUFFER)
-        }, false);
-      }
-    }
-  });
-  ipcMain.on("set-window-height", (event, h) => {
-    if (win && !win.isDestroyed()) ;
-  });
-  ipcMain.on("set-is-expanded", (event, expanded) => {
-  });
-  ipcMain.on("set-is-preview", (event, preview) => {
-  });
-  let currentIslandX = 0;
-  ipcMain.on("update-island-pos", (event, x) => {
-    currentIslandX = x;
-  });
-  ipcMain.on("set-is-super-pill", (event, active) => {
-  });
-  proximityInterval = setInterval(() => {
-    if (!win || win.isDestroyed()) return;
-    const { x, y } = screen.getCursorScreenPoint();
-    const b = win.getBounds();
-    const islandCenterX = b.x + b.width / 2 + currentIslandX;
-    const relX = x - islandCenterX;
-    const relY = y - b.y;
-    const [winW, winH] = win.getSize();
-    safeSend(win, "mouse-proximity", { relX, relY });
-  }, 35);
+  fetchWeather();
+  weatherInterval = setInterval(fetchWeather, 20 * 60 * 1e3);
 }
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {

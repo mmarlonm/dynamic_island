@@ -19,7 +19,7 @@
   justify-content: center;
   align-items: flex-start;
   padding-top: 0px;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 body {
@@ -27,7 +27,7 @@ body {
   padding: 0;
   background-color: transparent !important;
   overflow: hidden;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .custom-scrollbar::-webkit-scrollbar {

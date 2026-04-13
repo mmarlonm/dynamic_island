@@ -672,6 +672,17 @@ export const DynamicIsland = () => {
 
   // Timer tick
   useEffect(() => {
+    const ipc = (window as any).ipcRenderer;
+    const isLarge = isHovered || isPinned || showSettings;
+    const totalW = (showSettings ? 720 : isLarge ? (activeView === 'Multimedia' && showPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440)) + 68;
+    const totalH = showSettings ? 480 : isLarge ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66);
+    
+    ipc?.send('set-window-dimensions', { w: totalW, h: totalH });
+    ipc?.send('set-is-expanded', isExpanded);
+    ipc?.send('set-is-super-pill', superPill && !isExpanded);
+  }, [isExpanded, superPill, activeView, isHovered, isPinned, showSettings, showPreview]);
+
+  useEffect(() => {
     if (timerActive && timerTime > 0) {
       timerRef.current = setInterval(() => setTimerTime(p => p - 1), 1000);
     } else {
@@ -683,32 +694,6 @@ export const DynamicIsland = () => {
     }
     return () => clearInterval(timerRef.current);
   }, [timerActive, timerTime]);
-
-  // ── Window geometry (Enhanced Sync Logic) ─────────────────────────────────
-  useEffect(() => {
-    const ipc = (window as any).ipcRenderer;
-    if (!ipc) return;
-
-    const isLarge = isHovered || isPinned || showSettings;
-    const h = showSettings ? 600 : isLarge ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 650 : 220) : 120;
-    const w = (showSettings ? 720 : isLarge ? (activeView === 'Multimedia' && showPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440));
-
-    if (isLarge) {
-      // PRE-ALLOCATE SPACE: Grow window instantly so island can animate into it
-      ipc.send('set-window-dimensions', { w, h });
-    } else {
-      // SMOOTH RETRACTION: Wait for animation to visually finish before shrinking window
-      const timer = setTimeout(() => {
-        ipc.send('set-window-dimensions', { w, h });
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-
-    // Secondary reports (always instant for metadata)
-    ipc.send('set-is-expanded', isLarge);
-    ipc.send('set-is-super-pill', superPill && !isLarge);
-    ipc.send('set-is-preview', showPreview && activeView === 'Multimedia' && isLarge);
-  }, [isHovered, isPinned, showSettings, activeView, superPill, showPreview]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const handleMeetingCommand = (cmd: string) => {
@@ -752,33 +737,24 @@ export const DynamicIsland = () => {
           drag="x"
           dragControls={dragControls}
           dragListener={false}
-          dragConstraints={{ left: -1000, right: 1000 }}
-          dragElastic={0.05}
+          dragConstraints={{ left: -2000, right: 2000 }}
+          dragElastic={0}
           dragMomentum={false}
           onDrag={(_, info) => {
-            const newX = islandXRef.current + info.delta.x;
-            setIslandX(newX);
-            (window as any).ipcRenderer?.send('update-island-pos', newX);
+            (window as any).ipcRenderer?.send('update-island-pos', info.point.x - window.innerWidth / 2);
           }}
           onMouseEnter={() => {
             setIsHovered(true);
-            (window as any).ipcRenderer?.send('set-ignore-mouse-events', false);
           }}
           onMouseLeave={() => {
             if (!isPinned && !showSettings) {
               setIsHovered(false);
-              (window as any).ipcRenderer?.send('set-ignore-mouse-events', true);
             }
-          }}
-          onClick={() => {
-             // Deactivated background pinning by user request. 
-             // Pinning is now EXCLUSIVELY via the Pin Button.
           }}
           className="relative pointer-events-auto cursor-default"
           style={{
             overflow: 'visible',
             color: isLightMode ? '#111' : '#fff',
-            x: islandX,
             willChange: 'width, height, transform',
           }}
           animate={{
@@ -1654,7 +1630,7 @@ export const DynamicIsland = () => {
               initial={{ opacity: 0, scale: 0.97, y: -8 }}
               animate={{ opacity: 1,  scale: 1,    y: 0   }}
               exit={{   opacity: 0,  scale: 0.97,  y: -8  }}
-              className="absolute inset-0 flex flex-col overflow-hidden"
+              className="absolute inset-0 flex flex-col overflow-hidden pointer-events-auto"
               onPointerDown={(e) => e.stopPropagation()}
               style={{
                 background: isLightMode ? 'rgba(252,252,252,0.97)' : 'rgba(8,8,8,0.97)',
