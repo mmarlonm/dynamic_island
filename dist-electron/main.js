@@ -2,7 +2,7 @@ import require$$1$3, { ipcMain, app, desktopCapturer, screen, BrowserWindow } fr
 import path$m from "node:path";
 import { fileURLToPath } from "node:url";
 import fs$j from "node:fs";
-import { spawn, fork, exec } from "node:child_process";
+import { spawn, exec, fork } from "node:child_process";
 import os$1 from "node:os";
 import https from "node:https";
 import require$$1 from "fs";
@@ -14563,6 +14563,7 @@ let proximityInterval = null;
 let systemUpdateInterval = null;
 let volInterval = null;
 let weatherInterval = null;
+let networkInterval = null;
 let weatherLocation = "";
 function safeSend(w, channel, ...args) {
   if (!w || w.isDestroyed()) return;
@@ -14656,8 +14657,8 @@ function createWindow() {
   setTimeout(() => {
     if (typeof startNotifMonitor === "function") startNotifMonitor();
     requestNotificationAccess();
-    if (volInterval) clearTimeout(volInterval);
     pollVol();
+    pollNetworkStatus();
     main$1.autoUpdater.checkForUpdatesAndNotify().catch((e) => console.error("Update check failed: " + e));
   }, 1e3);
   const screenCenterX = x + width / 2;
@@ -14669,7 +14670,10 @@ function createWindow() {
       const islandPhysicalX = screenCenterX + (currentIslandX || 0);
       const halfW = (currentWidth || 440) / 2;
       const h = currentHeight || 66;
-      const isOverPill = Math.abs(mouseX - islandPhysicalX) < halfW + 15 && mouseY >= y - 5 && mouseY < y + h + 10;
+      const isOverMainIsland = Math.abs(mouseX - islandPhysicalX) < halfW + 15 && mouseY >= y - 5 && mouseY < y + h + 15;
+      const islandLeftEdge = islandPhysicalX - halfW;
+      const isOverLeftBubbles = mouseX >= islandLeftEdge - 320 && mouseX < islandLeftEdge - 5 && mouseY >= y - 5 && mouseY < y + 70;
+      const isOverPill = isOverMainIsland || isOverLeftBubbles;
       win.setIgnoreMouseEvents(!isOverPill, { forward: true });
     } catch (e) {
     }
@@ -14679,6 +14683,7 @@ function createWindow() {
     if (systemUpdateInterval) clearInterval(systemUpdateInterval);
     if (volInterval) clearTimeout(volInterval);
     if (weatherInterval) clearInterval(weatherInterval);
+    if (networkInterval) clearInterval(networkInterval);
     win = null;
   });
   ipcMain.handle("get-auto-launch", () => {
@@ -14794,6 +14799,33 @@ systemUpdateInterval = setInterval(() => {
   } catch (e) {
   }
 }, 2e3);
+const pollNetworkStatus = async () => {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const script = `
+      [void][Windows.Devices.Radios.Radio, Windows.Devices.Radios, ContentType=WindowsRuntime]
+      $op = [Windows.Devices.Radios.Radio]::GetRadiosAsync()
+      while($op.Status -eq 'Started') { Start-Sleep -m 20 }
+      $rads = $op.GetResults()
+      $wifi = ($rads | Where-Object { $_.Kind -eq 'WiFi' }).State -eq 'On'
+      $bt = ($rads | Where-Object { $_.Kind -eq 'Bluetooth' }).State -eq 'On'
+      Write-Output "$wifi|$bt"
+    `;
+    exec(`powershell -Command "${script.replace(/\n/g, " ")}"`, (err, stdout) => {
+      var _a, _b;
+      if (!err && stdout) {
+        const parts = stdout.trim().split("|");
+        safeSend(win, "network-status", {
+          wifi: ((_a = parts[0]) == null ? void 0 : _a.toLowerCase()) === "true",
+          bluetooth: ((_b = parts[1]) == null ? void 0 : _b.toLowerCase()) === "true"
+        });
+      }
+    });
+  } catch (e) {
+  }
+  if (networkInterval) clearInterval(networkInterval);
+  networkInterval = setTimeout(pollNetworkStatus, 5e3);
+};
 const getResPath = (relPath) => {
   if (app.isPackaged) {
     return path$m.join(process.resourcesPath, relPath);
@@ -14836,45 +14868,49 @@ const pollVol = async () => {
   volInterval = setTimeout(pollVol, 1500);
 };
 let mediaProc = null;
-try {
-  const mediaReaderPath = app.isPackaged ? path$m.join(__dirname$1, "media-reader.js") : path$m.join(process.cwd(), "electron", "media-reader.mjs");
-  console.log(`[MAIN] Launching Media Reader: ${mediaReaderPath}`);
-  mediaProc = fork(mediaReaderPath, [process.resourcesPath || ""], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    stdio: ["inherit", "inherit", "inherit", "ipc"]
-  });
-  let lastMediaMsg = null;
-  let mediaSessions = /* @__PURE__ */ new Map();
-  if (mediaProc) {
-    if (mediaProc.stdout) {
-      mediaProc.stdout.on("data", (d) => {
+let lastMediaMsg = null;
+let mediaSessions = /* @__PURE__ */ new Map();
+const startMediaReader = () => {
+  try {
+    const mediaReaderPath = app.isPackaged ? path$m.join(__dirname$1, "media-reader.js") : path$m.join(process.cwd(), "electron", "media-reader.mjs");
+    console.log(`[MAIN] Launching Media Reader: ${mediaReaderPath}`);
+    mediaProc = fork(mediaReaderPath, [process.resourcesPath || ""], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      stdio: ["inherit", "inherit", "inherit", "ipc"]
+    });
+    if (mediaProc) {
+      mediaProc.on("exit", (code) => {
+        console.warn(`[MAIN] Media Reader exited with code ${code}. Restarting in 3s...`);
+        setTimeout(startMediaReader, 3e3);
       });
-      mediaProc.stderr.on("data", (d) => {
-      });
-    }
-    mediaProc.on("message", (msg) => {
-      if ((msg == null ? void 0 : msg.type) === "MEDIA_UPDATE") {
-        const data = msg.data;
-        if (!data) return;
-        const sessionKey = data.id && data.id !== "system" ? data.id : data.title + "||" + (data.artist || "");
-        if (data.title && data.title !== "Sin Reproducción") {
-          mediaSessions.set(sessionKey, { ...data, timestamp: Date.now() });
-        }
-        let sessionsList = Array.from(mediaSessions.values()).filter((s) => s.title !== "Sin Reproducción").sort((a, b) => b.timestamp - a.timestamp);
-        let displayData = data;
-        const activePlaying = sessionsList.find((s) => s.isPlaying);
-        if (activePlaying) {
-          displayData = activePlaying;
-        } else {
-          if (sessionsList.length > 0) {
+      mediaProc.on("message", (msg) => {
+        if ((msg == null ? void 0 : msg.type) === "MEDIA_UPDATE") {
+          const data = msg.data;
+          if (!data) return;
+          const sessionKey = data.id && data.id !== "system" ? data.id : data.title + "||" + (data.artist || "");
+          if (data.title && data.title !== "Sin Reproducción") {
+            mediaSessions.set(sessionKey, { ...data, timestamp: Date.now() });
+          }
+          let sessionsList = Array.from(mediaSessions.values()).filter((s) => s.title !== "Sin Reproducción").sort((a, b) => b.timestamp - a.timestamp);
+          let displayData = data;
+          const activePlaying = sessionsList.find((s) => s.isPlaying);
+          if (activePlaying) {
+            displayData = activePlaying;
+          } else if (sessionsList.length > 0) {
             displayData = sessionsList[0];
           }
+          lastMediaMsg = displayData;
+          safeSend(win, "media-update", displayData);
         }
-        lastMediaMsg = displayData;
-        safeSend(win, "media-update", displayData);
-      }
-    });
+      });
+    }
+  } catch (err) {
+    console.error("[MAIN] Media Reader Failed:", err);
+    setTimeout(startMediaReader, 5e3);
   }
+};
+try {
+  startMediaReader();
   let lastNotifId = "";
   let psMeet = null;
   let psMeetBuf = "";
@@ -15130,14 +15166,24 @@ try {
     return lastMediaMsg || null;
   });
   ipcMain.handle("toggle-wifi", async () => {
-    exec(`powershell -Command "if((Get-NetAdapter -Name 'Wi-Fi').Status -eq 'Up') { Disable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false } else { Enable-NetAdapter -Name 'Wi-Fi' -Confirm:\\$false }"`);
+    const cmd = `if((netsh interface show interface name="Wi-Fi" | Select-String "Habilitado" -Quiet) -or (netsh interface show interface name="Wi-Fi" | Select-String "Enabled" -Quiet)) { netsh interface set interface name="Wi-Fi" admin=disabled } else { netsh interface set interface name="Wi-Fi" admin=enabled }`;
+    exec(`powershell -Command "${cmd}"`, () => {
+      setTimeout(pollNetworkStatus, 1e3);
+    });
     return true;
   });
   ipcMain.handle("toggle-bluetooth", async () => {
-    exec(`powershell -Command "Add-Type -AssemblyName Windows.Devices.Radios; \\$r=[Windows.Devices.Radios.Radio]::GetRadiosAsync().GetAwaiter().GetResult() | Where-Object { \\$_.Kind -eq 'Bluetooth' }; if(\\$r.State -eq 'On') { \\$r.SetStateAsync('Off') } else { \\$r.SetStateAsync('On') }"`);
+    const cmd = `[void][Windows.Devices.Radios.Radio, Windows.Devices.Radios, ContentType=WindowsRuntime]; $op = [Windows.Devices.Radios.Radio]::GetRadiosAsync(); while($op.Status -eq 'Started'){Start-Sleep -m 20}; $r = $op.GetResults() | Where-Object { $_.Kind -eq 'Bluetooth' }; if($r.State -eq 'On') { $r.SetStateAsync('Off') } else { $r.SetStateAsync('On') }`;
+    exec(`powershell -Command "${cmd}"`, () => {
+      setTimeout(pollNetworkStatus, 1e3);
+    });
     return true;
   });
-  ipcMain.handle("media-command", (_event, action) => mediaProc == null ? void 0 : mediaProc.send(action));
+  ipcMain.on("media-command", (_event, action) => {
+    if (mediaProc && !mediaProc.killed) {
+      mediaProc.send(action);
+    }
+  });
   ipcMain.handle("get-volume", async () => await getVol());
   ipcMain.handle("set-volume", (_e, v) => {
     setVol(v);

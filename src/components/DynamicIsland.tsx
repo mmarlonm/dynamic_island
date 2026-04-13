@@ -4,7 +4,7 @@ import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
   EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
-  ChevronLeft, ChevronRight, Download, MessageCircle
+  ChevronLeft, ChevronRight, Download, MessageCircle, Wifi, WifiOff, Bluetooth, LayoutGrid
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -270,6 +270,88 @@ const CallBubble = ({ app, micActive, camActive, onClick, onCommand, onEndCall }
   );
 };
 
+// ── Control Center Bubble (Left Side) ───────────────────────────
+const ControlCenterBubble = ({ 
+  wifiActive, btActive, volume, onToggleWifi, onToggleBt, onVolumeChange 
+}: { 
+  wifiActive: boolean; btActive: boolean; volume: number; 
+  onToggleWifi: () => void; onToggleBt: () => void; onVolumeChange: (v: number) => void 
+}) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const ipc = (window as any).ipcRenderer;
+  const circ = 2 * Math.PI * 22;
+  const pct = volume / 100;
+
+  return (
+    <motion.div
+      onMouseEnter={() => { setIsHovered(true); ipc?.send('set-ignore-mouse-events', false); }}
+      onMouseLeave={() => { setIsHovered(false); }}
+      initial={{ scale: 0, opacity: 0, x: 20 }}
+      animate={{ 
+        scale: 1, 
+        opacity: 1, 
+        x: 0,
+        width: isHovered ? 240 : 56,
+      }}
+      className="pointer-events-auto select-none cursor-pointer h-14 bg-black/80 backdrop-blur-3xl rounded-[28px] flex items-center justify-center overflow-hidden border border-white/10 shadow-2xl"
+    >
+      {!isHovered ? (
+        <div className="relative w-14 h-14 flex items-center justify-center">
+          <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 56 56">
+            <circle cx="28" cy="28" r="22" strokeWidth="2.5" fill="transparent" stroke="rgba(255,255,255,0.08)" />
+            <motion.circle
+              cx="28" cy="28" r="22" strokeWidth="2.5" fill="transparent"
+              stroke="#3b82f6"
+              strokeDasharray={2 * Math.PI * 22}
+              animate={{ strokeDashoffset: 2 * Math.PI * 22 * (1 - pct) }}
+              style={{ filter: 'drop-shadow(0 0 4px #3b82f6)' }}
+            />
+          </svg>
+          <div className="relative z-10 flex flex-col items-center">
+            <LayoutGrid className="w-4 h-4 text-white/60" />
+          </div>
+        </div>
+      ) : (
+        <motion.div 
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="flex items-center gap-4 px-5 w-full h-full"
+        >
+          <div className="flex gap-2.5 shrink-0">
+            <button 
+              onClick={(e) => { e.stopPropagation(); onToggleWifi(); }}
+              className={clsx("w-9 h-9 rounded-xl flex items-center justify-center transition-all", wifiActive ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "bg-white/5 text-white/30 border border-white/5")}
+            >
+              <Wifi className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); onToggleBt(); }}
+              className={clsx("w-9 h-9 rounded-xl flex items-center justify-center transition-all", btActive ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" : "bg-white/5 text-white/30 border border-white/5")}
+            >
+              <Bluetooth className="w-4 h-4" />
+            </button>
+          </div>
+          
+          <div className="flex-1 flex flex-col justify-center">
+             <div className="flex items-center justify-between px-0.5 mb-1">
+               <Volume2 className="w-3 h-3 text-white/30" />
+               <span className="text-[8px] font-black text-blue-400 tabular-nums">{volume}%</span>
+             </div>
+             <div className="relative flex items-center h-4">
+               <input 
+                 type="range" min="0" max="100" value={volume}
+                 onChange={(e) => onVolumeChange(parseInt(e.target.value))}
+                 onPointerDown={(e) => { e.stopPropagation(); ipc?.send('set-ignore-mouse-events', false); }}
+                 className="w-full h-1 rounded-full outline-none cursor-pointer bg-white/10"
+                 style={{ accentColor: '#3b82f6' }}
+               />
+             </div>
+          </div>
+        </motion.div>
+      )}
+    </motion.div>
+  );
+};
+
 // ── Unified Triple Circle Timer ─────────────────────────────────────────────
 const UnifiedCircularTimer = ({ 
   hours, mins, secs, onChange, disabled, isLightMode 
@@ -391,6 +473,8 @@ export const DynamicIsland = () => {
   const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '', id: '' });
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
   const [systemInfo, setSystemInfo]   = useState({ cpu: 12, ram: 45, net: 2.1, temp: 42 });
+  const [wifiActive, setWifiActive] = useState(true);
+  const [btActive, setBtActive]     = useState(true);
   const [musicIntensity, setMusicIntensity] = useState(0);
   const [weather, setWeather]         = useState({ temp: '22', condition: 'Clear', city: 'Local' });
   const [volume, setVolume]           = useState(50);
@@ -574,8 +658,10 @@ export const DynamicIsland = () => {
       });
       ipc.on('system-update',  (_: any, d: any) => setSystemInfo(d));
       ipc.on('weather-update', (_: any, d: any) => setWeather(d));
-      ipc.on('volume-update',  (_: any, v: number) => setVolume(v));
-      ipc.on('mouse-proximity', () => { /* Reservado para efectos visuales futuros */ });
+      ipc.on('network-status',  (_: any, d: any) => {
+        if (d.wifi !== undefined) setWifiActive(d.wifi);
+        if (d.bluetooth !== undefined) setBtActive(d.bluetooth);
+      });
       ipc.send('set-weather-location', weatherCity);
     }
 
@@ -598,6 +684,7 @@ export const DynamicIsland = () => {
         ipc.removeAllListeners('volume-update');
         ipc.removeAllListeners('mouse-proximity');
         ipc.removeAllListeners('meeting-update');
+        ipc.removeAllListeners('network-status');
         ipc.send('set-ignore-mouse-events', true);
       }
     };
@@ -741,6 +828,8 @@ export const DynamicIsland = () => {
     }, 80);
   };
 
+  // ── Reactive State Derived ────────────────────────────────────────────────
+
   // Wing/body colors must match exactly for seamless look
   const WING_R   = 34;
   const showTimerBubble = timerTime > 0 && !isExpanded;
@@ -753,6 +842,49 @@ export const DynamicIsland = () => {
         <SoundVisualizer isPlaying={media.isPlaying} onIntensity={setMusicIntensity} />
       </div>
       <div className="relative flex items-start justify-center">
+        {/* Call / Control Bubbles — Left side (Outside Body to prevent hover triggers) */}
+        <div className="absolute right-full mr-4 top-1 flex flex-row-reverse items-center gap-3 pointer-events-none z-[1001]">
+          <AnimatePresence>
+            {meeting.isActive && !isExpanded && (
+              <div 
+                className="pointer-events-auto"
+                onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
+                onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
+              >
+                <CallBubble 
+                  key="call" 
+                  app={meeting.app} 
+                  micActive={meeting.micActive} 
+                  camActive={meeting.camActive}
+                  onClick={() => { setActiveView('Llamada'); }} 
+                  onCommand={handleMeetingCommand}
+                  onEndCall={() => setMeeting(m => ({ ...m, isActive: false }))}
+                />
+              </div>
+            )}
+
+             {!isExpanded && (
+               <div 
+                 className="pointer-events-auto"
+                 onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
+                 onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
+               >
+                 <ControlCenterBubble 
+                   key="controls"
+                   wifiActive={wifiActive}
+                   btActive={btActive}
+                   volume={volume}
+                   onToggleWifi={() => (window as any).ipcRenderer?.invoke('toggle-wifi')}
+                   onToggleBt={() => (window as any).ipcRenderer?.invoke('toggle-bluetooth')}
+                   onVolumeChange={(v) => {
+                     setVol(v);
+                   }}
+                 />
+               </div>
+             )}
+          </AnimatePresence>
+        </div>
+
         {/* ── Island body ── */}
         <motion.div
           drag="x"
@@ -780,30 +912,10 @@ export const DynamicIsland = () => {
           }}
           animate={{
             width: (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
-            height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66),
+            height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66),
           }}
           transition={{ type: 'spring', stiffness: 350, damping: 35, mass: 0.8 }}
         >
-          {/* Call Bubble — Left side, outside hover zone */}
-          <AnimatePresence>
-            {meeting.isActive && !isExpanded && (
-              <div 
-                className="absolute right-full mr-0 top-1 pointer-events-auto translate-y-[-2px]"
-                onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
-                onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
-              >
-                <CallBubble 
-                  key="call" 
-                  app={meeting.app} 
-                  micActive={meeting.micActive} 
-                  camActive={meeting.camActive}
-                  onClick={() => { setActiveView('Llamada'); }} 
-                  onCommand={handleMeetingCommand}
-                  onEndCall={() => setMeeting(m => ({ ...m, isActive: false }))}
-                />
-              </div>
-            )}
-          </AnimatePresence>
         {/* UNIFIED BACKGROUND SVG LAYER — Production Fix & Subtle Drop */}
         <div className="absolute inset-0 pointer-events-none z-[-1] overflow-visible">
           <svg width="100%" height="100%" shapeRendering="geometricPrecision" style={{ display: 'block', overflow: 'visible' }}>
@@ -814,7 +926,7 @@ export const DynamicIsland = () => {
                   const isLarge = showSettings || isExpanded;
                   const isPreview = showPreview && activeView === 'Multimedia';
                   const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440));
-                  const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66);
+                  const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66);
                   const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
                   const totalW = w + 68;
                   
@@ -1069,13 +1181,13 @@ export const DynamicIsland = () => {
                         <span className="text-[14px] font-black truncate tracking-tight leading-tight">{media.title}</span>
                         <span className="text-[10px] font-bold truncate" style={{ opacity: 0.45 }}>{media.artist}</span>
                         <div className="flex items-center gap-3 mt-2">
-                          <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'prev')}      className="hover:scale-110 transition-all outline-none opacity-40">
                             <SkipBack className="w-4 h-4" />
                           </button>
-                          <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="w-7 h-7 hover:scale-110 transition-all outline-none">
+                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'playPause')} className="w-7 h-7 hover:scale-110 transition-all outline-none">
                             {media.isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current" />}
                           </button>
-                          <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      className="hover:scale-110 transition-all outline-none opacity-40">
+                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'next')}      className="hover:scale-110 transition-all outline-none opacity-40">
                             <SkipForward className="w-4 h-4" />
                           </button>
                         </div>
@@ -1245,24 +1357,50 @@ export const DynamicIsland = () => {
               </div>
             )}
 
-            {/* SISTEMA */}
+            {/* SISTEMA — Compact Controls (v5.5.1) */}
             {activeView === 'Sistema' && (
-              <div className="absolute inset-0 flex flex-col justify-center px-12 gap-4">
-                {[
-                  { label: 'CPU', val: systemInfo.cpu,      col: 'bg-blue-500',    icon: <Cpu       className="w-3.5 h-3.5 text-blue-400"   /> },
-                  { label: 'RAM', val: systemInfo.ram,      col: 'bg-purple-500',  icon: <HardDrive className="w-3.5 h-3.5 text-purple-400" /> },
-                  { label: 'NET', val: systemInfo.net * 10, col: 'bg-emerald-500', icon: <Activity  className="w-3.5 h-3.5 text-emerald-400"/> },
-                ].map(s => (
-                  <div key={s.label} className="flex flex-col gap-1.5">
-                    <div className="flex justify-between items-center px-1 font-black uppercase tracking-widest text-[9.5px]">
-                      <div className="flex items-center gap-2" style={{ opacity: 0.7 }}>{s.icon} {s.label}</div>
-                      <span className="font-mono" style={{ opacity: 0.5 }}>{Math.round(s.val)}%</span>
+              <div className="absolute inset-0 flex flex-col justify-center px-8 gap-3">
+                <div className="flex flex-col gap-2">
+                  {[
+                    { label: 'CPU', val: systemInfo.cpu,      col: 'bg-blue-500',    icon: <Cpu       className="w-3 h-3 text-blue-400"   /> },
+                    { label: 'RAM', val: systemInfo.ram,      col: 'bg-purple-500',  icon: <HardDrive className="w-3 h-3 text-purple-400" /> },
+                    { label: 'NET', val: systemInfo.net * 10, col: 'bg-emerald-500', icon: <Activity  className="w-3 h-3 text-emerald-400"/> },
+                  ].map(s => (
+                    <div key={s.label} className="flex flex-col gap-1">
+                      <div className="flex justify-between items-center px-1 font-black uppercase text-[8.5px]">
+                        <div className="flex items-center gap-2 opacity-60 font-black">{s.icon} {s.label}</div>
+                        <span className="font-mono opacity-40">{Math.round(s.val)}%</span>
+                      </div>
+                      <div className="h-1 rounded-full bg-white/5 overflow-hidden">
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${s.val}%` }} className={clsx('h-full', s.col)} transition={{ type: 'spring', stiffness: 100, damping: 20 }} />
+                      </div>
                     </div>
-                    <div className="h-1.5 rounded-full border overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                      <motion.div initial={{ width: 0 }} animate={{ width: `${s.val}%` }} className={clsx('h-full rounded-full', s.col)} transition={{ type: 'spring', stiffness: 80, damping: 15 }} />
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                <div className="flex gap-3 mt-2 no-drag">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); (window as any).ipcRenderer?.send('toggle-wifi'); }}
+                    className={clsx(
+                      "flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-[20px] border transition-all duration-300 no-drag",
+                      wifiActive ? "bg-blue-600/10 border-blue-500/20 text-blue-400" : "bg-white/5 border-transparent text-white/20"
+                    )}
+                  >
+                    {wifiActive ? <Wifi className="w-5 h-5 shadow-blue-500/50" /> : <WifiOff className="w-5 h-5 text-white/20" />}
+                    <span className="text-[8px] font-black uppercase tracking-widest">{wifiActive ? 'WiFi' : 'Off'}</span>
+                  </button>
+
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); (window as any).ipcRenderer?.send('toggle-bluetooth'); }}
+                    className={clsx(
+                      "flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-[20px] border transition-all duration-300 no-drag",
+                      btActive ? "bg-indigo-600/10 border-indigo-500/20 text-indigo-400" : "bg-white/5 border-transparent text-white/20"
+                    )}
+                  >
+                    <Bluetooth className={clsx("w-5 h-5", btActive ? "text-indigo-400" : "text-white/20")} />
+                    <span className="text-[8px] font-black uppercase tracking-widest">{btActive ? 'BT' : 'Off'}</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1339,19 +1477,19 @@ export const DynamicIsland = () => {
                   
                   <div className="flex items-center gap-6 mt-3">
                     <button 
-                      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'prev')}      
+                      onClick={() => (window as any).ipcRenderer?.send('media-command', 'prev')}      
                       className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
                     >
                       <SkipBack className="w-5 h-5" />
                     </button>
                     <button      
-                      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} 
+                      onClick={() => (window as any).ipcRenderer?.send('media-command', 'playPause')} 
                       className="w-12 h-12 rounded-full flex items-center justify-center border outline-none hover:scale-105 active:scale-95 transition-all shadow-xl bg-white/5 border-white/10"
                     >
                       {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
                     </button>
                     <button 
-                      onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'next')}      
+                      onClick={() => (window as any).ipcRenderer?.send('media-command', 'next')}      
                       className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
                     >
                       <SkipForward className="w-5 h-5" />
