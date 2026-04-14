@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
@@ -9,11 +9,22 @@ import {
 import clsx from 'clsx';
 
 // ── Modern Reactive Sound Visualizer (5-bar Equalizer) ──────────────────────
-const SoundVisualizer = ({ isPlaying, onIntensity }: { isPlaying: boolean; onIntensity?: (v: number) => void }) => {
+const SoundVisualizer = ({
+  isPlaying,
+  onIntensity,
+  onBeat,
+}: {
+  isPlaying: boolean;
+  onIntensity?: (v: number) => void;
+  onBeat?: (v: number) => void;
+}) => {
   const [bars, setBars] = useState([4, 4, 4, 4, 4]); // Heights (1-16px)
   const analyserRef = useRef<AnalyserNode | null>(null);
   const rafRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Beat detection state (transient detector)
+  const prevBassRef = useRef(0);
+  const beatPulseRef = useRef(0);
 
   const stopStream = () => {
     if (streamRef.current) {
@@ -35,6 +46,7 @@ const SoundVisualizer = ({ isPlaying, onIntensity }: { isPlaying: boolean; onInt
       if (!isPlaying) {
         setBars([4, 4, 4, 4, 4]);
         if (onIntensity) onIntensity(0);
+        if (onBeat) onBeat(0);
         return;
       }
 
@@ -51,18 +63,18 @@ const SoundVisualizer = ({ isPlaying, onIntensity }: { isPlaying: boolean; onInt
           };
 
           const stream = await (window as any).navigator.mediaDevices.getUserMedia(constraints as any);
-          if (!active) { 
-            stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); 
-            return; 
+          if (!active) {
+            stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+            return;
           }
-          
+
           streamRef.current = stream;
           stream.getVideoTracks().forEach((t: MediaStreamTrack) => t.stop());
 
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
           const src = ctx.createMediaStreamSource(stream);
           const ans = ctx.createAnalyser();
-          ans.fftSize = 64; 
+          ans.fftSize = 64;
           src.connect(ans);
           analyserRef.current = ans;
 
@@ -70,15 +82,29 @@ const SoundVisualizer = ({ isPlaying, onIntensity }: { isPlaying: boolean; onInt
             if (!active) return;
             const data = new Uint8Array(ans.frequencyBinCount);
             ans.getByteFrequencyData(data);
-            
+
+            // ── Sustained intensity (for ambient glow) ──
             if (onIntensity) {
               const bassAvg = (data[0] + data[1] + data[2]) / 3;
               const midAvg = (data[3] + data[4] + data[5]) / 3;
-              // Higher gain: 110 instead of 140 for more sensitivity
-              const intensity = (bassAvg * 0.75 + midAvg * 0.25) / 110; 
-              onIntensity(Math.min(1, intensity)); 
+              const intensity = (bassAvg * 0.75 + midAvg * 0.25) / 110;
+              onIntensity(Math.min(1, intensity));
             }
 
+            // ── Beat / transient detection (attack pulse for rim flash) ──
+            if (onBeat) {
+              const bassNow = (data[0] + data[1] + data[2]) / 3 / 255;
+              const prevBass = prevBassRef.current;
+              const delta = bassNow - prevBass;
+              // Transient: sudden rise > 0.10 triggers a pulse
+              if (delta > 0.10) {
+                beatPulseRef.current = Math.min(1, beatPulseRef.current + delta * 2.5);
+              }
+              // Exponential decay: fast attack, natural tail (~8 frames)
+              beatPulseRef.current = beatPulseRef.current * 0.82;
+              prevBassRef.current = bassNow * 0.6 + prevBass * 0.4; // low-pass previous
+              onBeat(beatPulseRef.current);
+            }
 
             const newBars = [
               Math.max(4, (data[1] / 255) * 16),
@@ -97,7 +123,9 @@ const SoundVisualizer = ({ isPlaying, onIntensity }: { isPlaying: boolean; onInt
             if (!active) return;
             const b = bars.map(() => Math.random() * 12 + 4);
             setBars(b);
-            if (onIntensity) onIntensity(Math.random() * 0.3);
+            const fakeIntensity = Math.random() * 0.3;
+            if (onIntensity) onIntensity(fakeIntensity);
+            if (onBeat) onBeat(Math.random() > 0.85 ? Math.random() * 0.8 : 0);
             rafRef.current = requestAnimationFrame(sim);
           };
           sim();
@@ -106,8 +134,8 @@ const SoundVisualizer = ({ isPlaying, onIntensity }: { isPlaying: boolean; onInt
     };
 
     setupAnalyser();
-    return () => { 
-      active = false; 
+    return () => {
+      active = false;
       clearTimeout(timer);
       stopStream();
     };
@@ -475,6 +503,7 @@ export const DynamicIsland = () => {
   const [wifiActive, setWifiActive] = useState(true);
   const [btActive, setBtActive]     = useState(true);
   const [musicIntensity, setMusicIntensity] = useState(0);
+  const [beatPulse, setBeatPulse]           = useState(0); // Sharp transient: 1.0 on hit, decays fast
   const [weather, setWeather]         = useState({ temp: '22', condition: 'Clear', city: 'Local' });
   const [volume, setVolume]           = useState(50);
   const [meeting, setMeeting] = useState({ isActive: false, app: '', device: '', micActive: false, camActive: false });
@@ -863,7 +892,7 @@ export const DynamicIsland = () => {
     <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999] px-[50px] pb-[50px]">
       {/* Active analyzer layer: 1x1 pixel but "visible" to bypass background capture throttling */}
       <div className="absolute top-0 left-0 w-[1px] h-[1px] opacity-[0.01] pointer-events-none overflow-hidden z-[-1]">
-        <SoundVisualizer isPlaying={media.isPlaying} onIntensity={setMusicIntensity} />
+        <SoundVisualizer isPlaying={media.isPlaying} onIntensity={setMusicIntensity} onBeat={setBeatPulse} />
       </div>
       <div className="relative flex items-start justify-center">
         {/* Call / Control Bubbles — Left side (Outside Body to prevent hover triggers) */}
@@ -975,45 +1004,118 @@ export const DynamicIsland = () => {
                 transition={{ type: 'spring', stiffness: 200, damping: 20 }}
              />
 
-             {/* Modern Rhythm Contour Effect */}
+             {/* ── DISRUPTIVE RHYTHM CONTOUR SYSTEM ── */}
              <AnimatePresence>
-               {superPill && !isExpanded && media.isPlaying && (
-                 <motion.path
-                   initial={{ pathLength: 0, opacity: 0 }}
-                   animate={{ 
-                     d: (() => {
-                       const w = 72;
-                       const h = 42 + (musicIntensity || 0) * 4;
-                       const totalW = w + 68;
-                       const neck = 42;
-                       return `M 2 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW-2} 0`;
-                     })(),
-                     pathLength: 1, 
-                     opacity: 0.3 + (musicIntensity || 0) * 0.4,
-                     strokeWidth: 0.8 + (musicIntensity || 0) * 1,
-                   }}
-                   style={{ 
-                     filter: `drop-shadow(0 0 ${2 + (musicIntensity || 0) * 6}px rgba(139, 92, 246, 0.4))` 
-                   }}
-                   exit={{ opacity: 0 }}
-                   fill="none"
-                   stroke="url(#modernRhythmGradient)"
-                   strokeLinecap="round"
-                 />
-               )}
+               {superPill && !isExpanded && media.isPlaying && (() => {
+                 const mi  = musicIntensity || 0;   // sustained energy 0-1
+                 const bp  = beatPulse     || 0;    // transient beat pulse 0-1 (fast decay)
+                 const w = 72;
+                 const h = 42 + mi * 4;
+                 const totalW = w + 68;
+                 const neck = 42;
+                 const spineD = `M 4 2 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW-4} 2`;
+                 const fullD  = `M 2 1 C ${neck} -2, ${neck} ${h+2}, ${totalW/2} ${h+2} S ${totalW-neck} -2, ${totalW-2} 1`;
+                 return (
+                   <g key="rhythm-system">
+                     {/* Layer 1: Plasma base — breathes with sustained energy, slow drift */}
+                     <motion.path
+                       d={spineD}
+                       fill="none"
+                       stroke="url(#rgPlasma)"
+                       strokeLinecap="round"
+                       animate={{
+                         strokeWidth: 3 + mi * 8,
+                         opacity: 0.1 + mi * 0.25,
+                       }}
+                        transition={{ duration: 0.18 }}
+                       style={{ filter: `blur(${4 + mi * 10}px)` }}
+                     />
+
+                     {/* Layer 2: Chroma rim — snaps to beat pulse, instant attack */}
+                     <motion.path
+                       d={fullD}
+                       fill="none"
+                       stroke="url(#rgChroma)"
+                       strokeLinecap="round"
+                       animate={{
+                         strokeWidth: 0.5 + bp * 2.5,          // snaps on beat
+                         opacity: 0.25 + mi * 0.2 + bp * 0.55, // beat adds flash
+                       }}
+                       transition={{
+                         strokeWidth: { duration: bp > 0.1 ? 0 : 0.25 },  // instant attack, slow decay
+                         opacity:     { duration: bp > 0.1 ? 0 : 0.25 },
+                       }}
+                       style={{ filter: `drop-shadow(0 0 ${1 + bp * 14}px rgba(139,92,246,${0.2 + bp * 0.75})) drop-shadow(0 0 ${bp * 5}px #e879f9)` }}
+                     />
+
+                     {/* Layer 3: Arc flash — fires only on beat pulse (> threshold) */}
+                     {bp > 0.18 && (
+                       <motion.path
+                         d={fullD}
+                         fill="none"
+                         stroke="url(#rgArc)"
+                         strokeLinecap="round"
+                         initial={{ strokeWidth: 0, opacity: 0 }}
+                         animate={{
+                           strokeWidth: bp * 4,
+                           opacity: bp * 0.95,
+                         }}
+                         exit={{ opacity: 0, strokeWidth: 0, transition: { duration: 0.2 } }}
+                         transition={{ duration: 0 }}  // instant attack
+                         style={{ filter: `drop-shadow(0 0 ${bp * 22}px rgba(236,72,153,${bp})) drop-shadow(0 0 ${bp * 8}px #fff)` }}
+                       />
+                     )}
+
+                     {/* Layer 4: Shimmer scan — ambient texture on sustained energy */}
+                     <motion.path
+                       d={spineD}
+                       fill="none"
+                       stroke="url(#rgShimmer)"
+                       strokeLinecap="round"
+                       strokeWidth={0.4 + mi * 0.7}
+                       animate={{ opacity: 0.15 + mi * 0.35 + bp * 0.3 }}
+                       transition={{ duration: 0.08 }}
+                       style={{ mixBlendMode: 'screen' }}
+                     />
+                   </g>
+                 );
+               })()}
              </AnimatePresence>
 
              <defs>
-               <linearGradient id="modernRhythmGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                 <stop offset="0%" stopColor="#3b82f6" />
-                 <stop offset="50%" stopColor="#8b5cf6" />
+               <linearGradient id="rgPlasma" x1="0%" y1="0%" x2="100%" y2="0%">
+                 <stop offset="0%" stopColor="#06b6d4" />
+                 <stop offset="40%" stopColor="#8b5cf6" />
                  <stop offset="100%" stopColor="#ec4899" />
-                 <animate 
-                   attributeName="x1" 
-                   values="0%;100%;0%" 
-                   dur="3s" 
-                   repeatCount="indefinite" 
-                 />
+                 <animate attributeName="x1" values="0%;-80%;0%" dur="2.4s" repeatCount="indefinite" />
+                 <animate attributeName="x2" values="100%;180%;100%" dur="2.4s" repeatCount="indefinite" />
+               </linearGradient>
+               <linearGradient id="rgChroma" x1="0%" y1="0%" x2="100%" y2="0%">
+                 <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.9" />
+                 <stop offset="25%" stopColor="#818cf8" />
+                 <stop offset="55%" stopColor="#e879f9" />
+                 <stop offset="80%" stopColor="#f472b6" />
+                 <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.9" />
+                 <animate attributeName="x1" values="0%;100%;0%" dur="1.6s" repeatCount="indefinite" />
+                 <animate attributeName="x2" values="100%;200%;100%" dur="1.6s" repeatCount="indefinite" />
+               </linearGradient>
+               <linearGradient id="rgArc" x1="0%" y1="0%" x2="100%" y2="0%">
+                 <stop offset="0%" stopColor="#ffffff" stopOpacity="0.0" />
+                 <stop offset="30%" stopColor="#e879f9" stopOpacity="1" />
+                 <stop offset="50%" stopColor="#ffffff" stopOpacity="1" />
+                 <stop offset="70%" stopColor="#38bdf8" stopOpacity="1" />
+                 <stop offset="100%" stopColor="#ffffff" stopOpacity="0.0" />
+                 <animate attributeName="x1" values="0%;-100%;0%" dur="0.9s" repeatCount="indefinite" />
+                 <animate attributeName="x2" values="100%;200%;100%" dur="0.9s" repeatCount="indefinite" />
+               </linearGradient>
+               <linearGradient id="rgShimmer" x1="0%" y1="0%" x2="100%" y2="0%">
+                 <stop offset="0%" stopColor="transparent" />
+                 <stop offset="40%" stopColor="transparent" />
+                 <stop offset="50%" stopColor="white" stopOpacity="0.9" />
+                 <stop offset="60%" stopColor="transparent" />
+                 <stop offset="100%" stopColor="transparent" />
+                 <animate attributeName="x1" values="-100%;100%;-100%" dur="1.2s" repeatCount="indefinite" />
+                 <animate attributeName="x2" values="0%;200%;0%" dur="1.2s" repeatCount="indefinite" />
                </linearGradient>
              </defs>
           </svg>
