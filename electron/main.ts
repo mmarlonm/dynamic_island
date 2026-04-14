@@ -283,6 +283,7 @@ function createWindow() {
   proximityInterval = setInterval(() => {
     try {
       if (!win || win.isDestroyed()) return;
+
       const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
       
       // Dynamic Hitbox PERFECT Sync (v7.6.1 - Peripheral Expansion)

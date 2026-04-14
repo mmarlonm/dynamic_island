@@ -463,11 +463,11 @@ export const DynamicIsland = () => {
   const [isHovered, setIsHovered]     = useState(false);
   const [isPinned, setIsPinned]       = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada' | 'Actualización' | 'WhatsApp'>('Resumen');
+  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada' | 'Actualización' | 'WhatsApp' | 'YouTube'>('Resumen');
   const [lang, setLang]               = useState<'es' | 'en' | 'zh'>('es');
   const [isLightMode, setIsLightMode] = useState(false);
   const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>('Moderno');
-  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas', 'WhatsApp']);
+  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas', 'WhatsApp', 'YouTube']);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '', id: '' });
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
@@ -479,6 +479,7 @@ export const DynamicIsland = () => {
   const [volume, setVolume]           = useState(50);
   const [meeting, setMeeting] = useState({ isActive: false, app: '', device: '', micActive: false, camActive: false });
   const whatsappWebviewRef = useRef<any>(null);
+  const youtubeWebviewRef  = useRef<any>(null);
 
   // 0-100 system volume
 
@@ -615,10 +616,26 @@ export const DynamicIsland = () => {
     }
   }, []);
 
+  useEffect(() => {
+    const yv = youtubeWebviewRef.current;
+    if (yv) {
+      const onDomReady = () => {
+        yv.insertCSS(`
+          body { zoom: 0.85 !important; }
+          ytd-masthead { display: none !important; } /* Hide top header */
+          #guide { display: none !important; } /* Hide left sidebar */
+          ytd-mini-guide-renderer { display: none !important; } /* Hide mini sidebar */
+        `);
+      };
+      yv.addEventListener('dom-ready', onDomReady);
+      return () => yv.removeEventListener('dom-ready', onDomReady);
+    }
+  }, []);
+
   const T: Record<string, any> = {
-    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp', autoLaunch:'Auto-inicio' },
-    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp', autoLaunch:'Auto-Launch' },
-    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp', autoLaunch:'自动启动' },
+    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-inicio' },
+    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-Launch' },
+    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'自动启动' },
   };
   const t = T[lang] ?? T.es;
 
@@ -788,13 +805,14 @@ export const DynamicIsland = () => {
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     const isLarge = isHovered || isPinned || showSettings;
-    const totalW = (showSettings ? 720 : isLarge ? (activeView === 'Multimedia' && showPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440)) + 68;
-    const totalH = showSettings ? 480 : isLarge ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66);
+    const totalW = (showSettings ? 720 : isLarge ? (activeView === 'Multimedia' && showPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68;
+    const totalH = showSettings ? 480 : isLarge ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66);
     
     ipc?.send('set-window-dimensions', { w: totalW, h: totalH });
     ipc?.send('set-is-expanded', isExpanded);
     ipc?.send('set-is-super-pill', superPill && !isExpanded);
   }, [isExpanded, superPill, activeView, isHovered, isPinned, showSettings, showPreview]);
+
 
   useEffect(() => {
     if (timerActive && timerTime > 0) {
@@ -924,8 +942,8 @@ export const DynamicIsland = () => {
             willChange: 'width, height, transform',
           }}
           animate={{
-            width: (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
-            height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66),
+            width: (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
+            height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66),
           }}
           transition={{ type: 'spring', stiffness: 350, damping: 35, mass: 0.8 }}
         >
@@ -938,8 +956,8 @@ export const DynamicIsland = () => {
                 animate={{ d: (() => {
                   const isLarge = showSettings || isExpanded;
                   const isPreview = showPreview && activeView === 'Multimedia';
-                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (activeView === 'WhatsApp' ? 800 : 680)) : (superPill ? 72 : 440));
-                  const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66);
+                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440));
+                  const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66);
                   const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
                   const totalW = w + 68;
                   
@@ -1115,9 +1133,14 @@ export const DynamicIsland = () => {
           animate={{ opacity: isExpanded && !showSettings ? 1 : 0 }}
           className={clsx('absolute inset-0 flex flex-col pt-2.5 px-4 pb-2', (!isExpanded || showSettings) && 'pointer-events-none')}
           onPointerDown={(e) => {
-             // Only start drag if clicking the background, not a button or control
+             // Only start drag if clicking the background, not a button/input/webview/no-drag zone
              const target = e.target as HTMLElement;
-             if (target.tagName !== 'BUTTON' && target.tagName !== 'INPUT' && !target.closest('.no-drag')) {
+             if (
+               target.tagName !== 'BUTTON' &&
+               target.tagName !== 'INPUT' &&
+               target.tagName !== 'WEBVIEW' &&
+               !target.closest('.no-drag')
+             ) {
                dragControls.start(e);
              }
           }}
@@ -1136,7 +1159,7 @@ export const DynamicIsland = () => {
                 }
               }}
             >
-              {(['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'WhatsApp', 'Sistema', 'Llamada'] as const).map(v =>
+              {(['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'WhatsApp', 'YouTube', 'Sistema', 'Llamada'] as const).map(v =>
                 visibleTabs.includes(v) && (
                   <button
                     key={v}
@@ -1155,7 +1178,12 @@ export const DynamicIsland = () => {
                     {v === 'Herramientas' && <Timer     className="w-2.5 h-2.5" />}
                     {v === 'Llamada'      && <Video      className="w-2.5 h-2.5" />}
                     {v === 'WhatsApp'     && <MessageCircle className="w-2.5 h-2.5" />}
-                    {t[v === 'Notificación' ? 'notificacion' : (v === 'WhatsApp' ? 'whatsapp' : (v === 'Herramientas' ? 'timer' : v.toLowerCase()))] || v}
+                    {v === 'YouTube'      && (
+                      <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                      </svg>
+                    )}
+                    {t[v === 'Notificación' ? 'notificacion' : (v === 'WhatsApp' ? 'whatsapp' : (v === 'YouTube' ? 'youtube' : (v === 'Herramientas' ? 'timer' : v.toLowerCase())))] || v}
                   </button>
                 )
               )}
@@ -1679,24 +1707,87 @@ export const DynamicIsland = () => {
               </div>
             )}
 
-            {/* WHATSAPP (Keep mounted for session persistence) */}
-            <div className={clsx("absolute inset-0 flex flex-col transition-opacity", activeView === 'WhatsApp' ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")}>
+            {/* WHATSAPP — display:none when inactive to remove native compositor layer */}
+            <div
+              className="absolute inset-0 flex flex-col"
+              style={{ display: activeView === 'WhatsApp' ? 'flex' : 'none' }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
+            >
               <div className="flex-1 rounded-[34px] overflow-hidden border border-white/5 bg-black relative flex flex-col">
                 {(window as any).ipcRenderer && (
-                  <webview 
+                  <webview
                     ref={whatsappWebviewRef}
-                    src="https://web.whatsapp.com" 
+                    src="https://web.whatsapp.com"
                     className="flex-1 w-full"
                     useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                    style={{ width: '100%', height: 'calc(100% + 50px)', marginTop: '-50px' }} 
+                    style={{ width: '100%', height: 'calc(100% + 50px)', marginTop: '-50px' }}
                     partition="persist:whatsapp"
                   />
                 )}
-                {/* Overlay for "Loading/Login" aesthetic or protection */}
+                {/* Overlay */}
                 <div className="absolute top-0 right-0 p-4 pointer-events-none">
                   <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-full backdrop-blur-md">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                     <span className="text-[8px] font-black uppercase text-green-400 tracking-widest px-1">WhatsApp Secure</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* YOUTUBE MINI-EXPLORER — display:none when inactive to remove native compositor layer */}
+            <div
+              className="absolute inset-0 flex flex-col"
+              style={{ display: activeView === 'YouTube' ? 'flex' : 'none' }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
+            >
+              <div className="flex-1 rounded-[20px] overflow-hidden border border-red-500/10 bg-black relative flex flex-col shadow-2xl">
+                {/* YouTube URL bar */}
+                <div className="flex items-center gap-2 px-3 py-2 shrink-0 bg-black/80 backdrop-blur-xl border-b border-white/5">
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="#ff0000">
+                    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                  </svg>
+                  <div className="flex-1 flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/5">
+                    <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">youtube.com</span>
+                  </div>
+                  <button
+                    onClick={() => { youtubeWebviewRef.current?.loadURL('https://music.youtube.com'); }}
+                    className="px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tighter text-red-400 border border-red-500/20 bg-red-500/10 hover:bg-red-500/20 transition-all shrink-0"
+                  >
+                    YT Music
+                  </button>
+                  <button
+                    onClick={() => { youtubeWebviewRef.current?.loadURL('https://www.youtube.com/feed/subscriptions'); }}
+                    className="px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tighter text-white/30 border border-white/5 bg-white/5 hover:bg-white/10 transition-all shrink-0"
+                  >
+                    Subs
+                  </button>
+                  <button
+                    onClick={() => { youtubeWebviewRef.current?.loadURL('https://www.youtube.com/playlist?list=PLmxqg54iaarsimgnmuejnzhzlkcebhqlu'); }}
+                    className="px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tighter text-white/30 border border-white/5 bg-white/5 hover:bg-white/10 transition-all shrink-0"
+                  >
+                    Listas
+                  </button>
+                </div>
+
+                {/* Webview */}
+                {(window as any).ipcRenderer && (
+                  <webview
+                    ref={youtubeWebviewRef}
+                    src="https://www.youtube.com"
+                    className="w-full"
+                    useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                    style={{ width: '100%', height: 'calc(100% - 37px)' }}
+                    partition="persist:youtube"
+                  />
+                )}
+
+                {/* Status badge */}
+                <div className="absolute top-10 right-0 p-3 pointer-events-none">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-black/70 border border-red-500/20 rounded-full backdrop-blur-md">
+                    <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-[7px] font-black uppercase text-red-400 tracking-widest">Streaming</span>
                   </div>
                 </div>
               </div>
@@ -1827,7 +1918,7 @@ export const DynamicIsland = () => {
                 <div className="flex flex-col gap-4 p-8 overflow-y-auto no-scrollbar" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
                   <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.visibility}</span>
                   <div className="flex flex-col gap-2">
-                    {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'WhatsApp', 'Herramientas'] as const).map(v => (
+                    {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'WhatsApp', 'YouTube', 'Herramientas'] as const).map(v => (
                       <button
                         key={v}
                         onClick={() => toggleTab(v)}
