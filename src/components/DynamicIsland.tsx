@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
@@ -647,18 +647,33 @@ export const DynamicIsland = () => {
 
   useEffect(() => {
     const yv = youtubeWebviewRef.current;
-    if (yv) {
-      const onDomReady = () => {
-        yv.insertCSS(`
-          body { zoom: 0.85 !important; }
-          ytd-masthead { display: none !important; } /* Hide top header */
-          #guide { display: none !important; } /* Hide left sidebar */
-          ytd-mini-guide-renderer { display: none !important; } /* Hide mini sidebar */
-        `);
-      };
-      yv.addEventListener('dom-ready', onDomReady);
-      return () => yv.removeEventListener('dom-ready', onDomReady);
-    }
+    if (!yv || !(window as any).ipcRenderer) return;
+
+    const injectCSS = () => {
+      yv.insertCSS(`
+        /* ── Scale down slightly so more content fits ── */
+        html { font-size: 13px !important; }
+        ytd-app { zoom: 0.85; transform-origin: top left; }
+
+        /* ── Keep header visible and sticky ── */
+        #masthead-container, ytd-masthead { display: flex !important; }
+
+        /* ── Remove left sidebar/guide (saves ~240px of horizontal space) ── */
+        #guide, tp-yt-app-drawer, ytd-guide-renderer,
+        ytd-mini-guide-renderer, #mini-guide { display: none !important; }
+
+        /* ── Remove sign-in / cookie banners ── */
+        ytd-popup-container, tp-yt-paper-dialog,
+        yt-mealbar-promo-renderer { display: none !important; }
+
+        /* ── Expand page content to use full width ── */
+        ytd-page-manager, #page-manager { margin-left: 0 !important; }
+        #content, ytd-browse { --ytd-margin-2x-default: 0px !important; }
+      `).catch(() => {});
+    };
+
+    yv.addEventListener('dom-ready', injectCSS);
+    return () => yv.removeEventListener('dom-ready', injectCSS);
   }, []);
 
   const T: Record<string, any> = {
@@ -1845,42 +1860,51 @@ export const DynamicIsland = () => {
               onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
             >
               <div className="flex-1 rounded-[20px] overflow-hidden border border-red-500/10 bg-black relative flex flex-col shadow-2xl">
-                {/* YouTube URL bar */}
-                <div className="flex items-center gap-2 px-3 py-2 shrink-0 bg-black/80 backdrop-blur-xl border-b border-white/5">
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="#ff0000">
-                    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                  </svg>
-                  <div className="flex-1 flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/5">
-                    <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">youtube.com</span>
-                  </div>
+                {/* Minimal YouTube toolbar — quick shortcuts only */}
+                <div className="flex items-center gap-2 px-3 py-1.5 shrink-0 bg-black/80 backdrop-blur-xl border-b border-white/5">
+                  {/* Logo → home */}
+                  <button
+                    onClick={() => { youtubeWebviewRef.current?.loadURL('https://www.youtube.com'); }}
+                    className="shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+                    title="Inicio"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#ff0000">
+                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                    </svg>
+                  </button>
+
+                  {/* Spacer */}
+                  <div className="flex-1" />
+
+                  {/* Quick nav */}
                   <button
                     onClick={() => { youtubeWebviewRef.current?.loadURL('https://music.youtube.com'); }}
-                    className="px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tighter text-red-400 border border-red-500/20 bg-red-500/10 hover:bg-red-500/20 transition-all shrink-0"
+                    className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter text-red-400 border border-red-500/20 bg-red-500/10 hover:bg-red-500/25 transition-all shrink-0"
                   >
                     YT Music
                   </button>
                   <button
                     onClick={() => { youtubeWebviewRef.current?.loadURL('https://www.youtube.com/feed/subscriptions'); }}
-                    className="px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tighter text-white/30 border border-white/5 bg-white/5 hover:bg-white/10 transition-all shrink-0"
+                    className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter text-white/30 border border-white/8 bg-white/5 hover:bg-white/10 transition-all shrink-0"
                   >
                     Subs
                   </button>
                   <button
-                    onClick={() => { youtubeWebviewRef.current?.loadURL('https://www.youtube.com/playlist?list=PLmxqg54iaarsimgnmuejnzhzlkcebhqlu'); }}
-                    className="px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tighter text-white/30 border border-white/5 bg-white/5 hover:bg-white/10 transition-all shrink-0"
+                    onClick={() => { youtubeWebviewRef.current?.loadURL('https://www.youtube.com/trending'); }}
+                    className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter text-white/30 border border-white/8 bg-white/5 hover:bg-white/10 transition-all shrink-0"
                   >
-                    Listas
+                    Trending
                   </button>
                 </div>
 
-                {/* Webview */}
+                {/* Webview — full remaining height so YouTube's native header+search are fully visible */}
                 {(window as any).ipcRenderer && (
                   <webview
                     ref={youtubeWebviewRef}
                     src="https://www.youtube.com"
-                    className="w-full"
+                    className="w-full flex-1"
                     useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                    style={{ width: '100%', height: 'calc(100% - 37px)' }}
+                    style={{ width: '100%', height: 'calc(100% - 33px)' }}
                     partition="persist:youtube"
                   />
                 )}
