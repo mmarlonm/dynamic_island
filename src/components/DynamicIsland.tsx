@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence, useDragControls } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls, useMotionValue } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
@@ -279,7 +279,6 @@ const ControlCenterBubble = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const ipc = (window as any).ipcRenderer;
-  const circ = 2 * Math.PI * 22;
   const pct = volume / 100;
 
   return (
@@ -585,13 +584,20 @@ export const DynamicIsland = () => {
   const isPinnedRef    = useRef(false);
   const showSettingsRef = useRef(false);
   const isHoveredRef    = useRef(false);
-  const [islandX, setIslandX] = useState(0); // Offset from center
-  const islandXRef = useRef(0);
+  const islandX = useMotionValue(0); // Reactive offset from center for bubble sync
   const dragControls = useDragControls();
+
   useEffect(() => { isPinnedRef.current = isPinned; }, [isPinned]);
   useEffect(() => { showSettingsRef.current = showSettings; }, [showSettings]);
   useEffect(() => { isHoveredRef.current = isHovered; }, [isHovered]);
-  useEffect(() => { islandXRef.current = islandX; }, [islandX]);
+
+  // Sync the main process with the island position for hitbox updates
+  useEffect(() => {
+    // FM 6-10 onChange returns unsubscribe
+    return islandX.onChange((v) => {
+      (window as any).ipcRenderer?.send('update-island-pos', v);
+    });
+  }, [islandX]);
 
   useEffect(() => {
     const wv = whatsappWebviewRef.current;
@@ -843,7 +849,10 @@ export const DynamicIsland = () => {
       </div>
       <div className="relative flex items-start justify-center">
         {/* Call / Control Bubbles — Left side (Outside Body to prevent hover triggers) */}
-        <div className="absolute right-full mr-4 top-1 flex flex-row-reverse items-center gap-3 pointer-events-none z-[1001]">
+        <motion.div 
+          style={{ x: islandX }}
+          className="absolute right-full mr-4 top-1 flex flex-row-reverse items-center gap-3 pointer-events-none z-[1001]"
+        >
           <AnimatePresence>
             {meeting.isActive && !isExpanded && (
               <div 
@@ -874,8 +883,14 @@ export const DynamicIsland = () => {
                    wifiActive={wifiActive}
                    btActive={btActive}
                    volume={volume}
-                   onToggleWifi={() => (window as any).ipcRenderer?.invoke('toggle-wifi')}
-                   onToggleBt={() => (window as any).ipcRenderer?.invoke('toggle-bluetooth')}
+                   onToggleWifi={() => {
+                     setWifiActive(!wifiActive);
+                     (window as any).ipcRenderer?.invoke('toggle-wifi');
+                   }}
+                   onToggleBt={() => {
+                     setBtActive(!btActive);
+                     (window as any).ipcRenderer?.invoke('toggle-bluetooth');
+                   }}
                    onVolumeChange={(v) => {
                      setVol(v);
                    }}
@@ -883,7 +898,7 @@ export const DynamicIsland = () => {
                </div>
              )}
           </AnimatePresence>
-        </div>
+        </motion.div>
 
         {/* ── Island body ── */}
         <motion.div
@@ -893,9 +908,6 @@ export const DynamicIsland = () => {
           dragConstraints={{ left: -2000, right: 2000 }}
           dragElastic={0}
           dragMomentum={false}
-          onDrag={(_, info) => {
-            (window as any).ipcRenderer?.send('update-island-pos', info.point.x - window.innerWidth / 2);
-          }}
           onMouseEnter={() => {
             setIsHovered(true);
           }}
@@ -906,6 +918,7 @@ export const DynamicIsland = () => {
           }}
           className="relative pointer-events-auto cursor-default"
           style={{
+            x: islandX,
             overflow: 'visible',
             color: isLightMode ? '#111' : '#fff',
             willChange: 'width, height, transform',

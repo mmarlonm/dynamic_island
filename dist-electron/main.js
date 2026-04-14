@@ -14689,14 +14689,21 @@ function createWindow() {
   ipcMain.handle("get-auto-launch", () => {
     return app.getLoginItemSettings().openAtLogin;
   });
-  ipcMain.on("set-auto-launch", (event, value) => {
+  ipcMain.on("set-auto-launch", (_event, value) => {
     try {
-      app.setLoginItemSettings({
-        openAtLogin: value,
-        path: app.getPath("exe")
-      });
+      if (process.platform === "win32") {
+        app.setLoginItemSettings({
+          openAtLogin: value,
+          path: app.getPath("exe"),
+          args: [
+            "--hidden",
+            "--start-minimized"
+          ]
+        });
+        console.log(`[MAIN] Autostart ${value ? "enabled" : "disabled"} for: ${app.getPath("exe")}`);
+      }
     } catch (e) {
-      console.error("Failed to set login item settings:", e);
+      console.error("[AUTOSTART_ERROR] Failed to set login item settings:", e);
     }
   });
   fetchWeather();
@@ -14803,13 +14810,15 @@ const pollNetworkStatus = async () => {
   if (!win || win.isDestroyed()) return;
   try {
     const script = `
-      [void][Windows.Devices.Radios.Radio, Windows.Devices.Radios, ContentType=WindowsRuntime]
-      $op = [Windows.Devices.Radios.Radio]::GetRadiosAsync()
-      while($op.Status -eq 'Started') { Start-Sleep -m 20 }
-      $rads = $op.GetResults()
-      $wifi = ($rads | Where-Object { $_.Kind -eq 'WiFi' }).State -eq 'On'
-      $bt = ($rads | Where-Object { $_.Kind -eq 'Bluetooth' }).State -eq 'On'
-      Write-Output "$wifi|$bt"
+      $wifi = $false; $bt = $false
+      try {
+        $w = Get-WmiObject -Class Win32_NetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Wi-Fi|Wireless|WLAN' -and $_.PhysicalAdapter -eq $true } | Select-Object -First 1
+        if ($w -and $w.NetEnabled) { $wifi = $true }
+        
+        $b = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { ($_.InstanceId -match '^USB|^PCI') -and ($_.FriendlyName -notmatch 'Enumerator|LE|Device|Phone|Hands-free') } | Select-Object -First 1
+        if ($b -and $b.Status -eq 'OK') { $bt = $true }
+      } catch {}
+      Write-Output "$($wifi)|$($bt)"
     `;
     exec(`powershell -Command "${script.replace(/\n/g, " ")}"`, (err, stdout) => {
       var _a, _b;
@@ -14820,11 +14829,13 @@ const pollNetworkStatus = async () => {
           bluetooth: ((_b = parts[1]) == null ? void 0 : _b.toLowerCase()) === "true"
         });
       }
+      if (networkInterval) clearTimeout(networkInterval);
+      networkInterval = setTimeout(pollNetworkStatus, 4e3);
     });
   } catch (e) {
+    if (networkInterval) clearTimeout(networkInterval);
+    networkInterval = setTimeout(pollNetworkStatus, 4e3);
   }
-  if (networkInterval) clearInterval(networkInterval);
-  networkInterval = setTimeout(pollNetworkStatus, 5e3);
 };
 const getResPath = (relPath) => {
   if (app.isPackaged) {
@@ -15165,17 +15176,47 @@ try {
     await new Promise((r) => setTimeout(r, 1200));
     return lastMediaMsg || null;
   });
+  const radioControlScript = `
+function Invoke-WinRT($obj, $methodName) {
+    if (-not $obj) { return $null }
+    try { return $obj.$methodName() } catch {
+        try { return $obj.GetType().InvokeMember($methodName, [System.Reflection.BindingFlags]::InvokeMethod, $null, $obj, $null) } catch { return $null }
+    }
+}
+function Set-RadioState($RadioKind) {
+    try {
+        [void][Windows.Devices.Radios.Radio, Windows.Devices.Radios, ContentType=WindowsRuntime]
+        $op = [Windows.Devices.Radios.Radio]::GetRadiosAsync()
+        while($op.Status -eq 'Started') { Start-Sleep -m 20 }
+        $rads = Invoke-WinRT $op "GetResults"
+        $enumKind = if($RadioKind -eq "WiFi") { [Windows.Devices.Radios.RadioKind]::WiFi } else { [Windows.Devices.Radios.RadioKind]::Bluetooth }
+        if ($rads) {
+            $r = $rads | Where-Object { $_.Kind -eq $enumKind }
+            if ($r) {
+                $st = if($r.State -eq 'On') { 'Off' } else { 'On' }
+                $task = $r.SetStateAsync($st)
+                while($task.Status -eq 'Started') { Start-Sleep -m 20 }
+            }
+        }
+    } catch {}
+}
+Set-RadioState -RadioKind $args[0]
+`;
   ipcMain.handle("toggle-wifi", async () => {
-    const cmd = `if((netsh interface show interface name="Wi-Fi" | Select-String "Habilitado" -Quiet) -or (netsh interface show interface name="Wi-Fi" | Select-String "Enabled" -Quiet)) { netsh interface set interface name="Wi-Fi" admin=disabled } else { netsh interface set interface name="Wi-Fi" admin=enabled }`;
-    exec(`powershell -Command "${cmd}"`, () => {
-      setTimeout(pollNetworkStatus, 1e3);
+    const psPath = path$m.join(os$1.tmpdir(), "notchly-radio-cmd.ps1");
+    fs$j.writeFileSync(psPath, radioControlScript, "utf8");
+    exec(`powershell -ExecutionPolicy Bypass -File "${psPath}" "WiFi"`, () => {
+      if (networkInterval) clearTimeout(networkInterval);
+      setTimeout(pollNetworkStatus, 1500);
     });
     return true;
   });
   ipcMain.handle("toggle-bluetooth", async () => {
-    const cmd = `[void][Windows.Devices.Radios.Radio, Windows.Devices.Radios, ContentType=WindowsRuntime]; $op = [Windows.Devices.Radios.Radio]::GetRadiosAsync(); while($op.Status -eq 'Started'){Start-Sleep -m 20}; $r = $op.GetResults() | Where-Object { $_.Kind -eq 'Bluetooth' }; if($r.State -eq 'On') { $r.SetStateAsync('Off') } else { $r.SetStateAsync('On') }`;
-    exec(`powershell -Command "${cmd}"`, () => {
-      setTimeout(pollNetworkStatus, 1e3);
+    const psPath = path$m.join(os$1.tmpdir(), "notchly-radio-cmd.ps1");
+    fs$j.writeFileSync(psPath, radioControlScript, "utf8");
+    exec(`powershell -ExecutionPolicy Bypass -File "${psPath}" "Bluetooth"`, () => {
+      if (networkInterval) clearTimeout(networkInterval);
+      setTimeout(pollNetworkStatus, 1500);
     });
     return true;
   });
