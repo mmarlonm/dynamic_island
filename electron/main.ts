@@ -115,8 +115,13 @@ autoUpdater.on('update-downloaded', () => {
   safeSend(win, 'update-ready');
 });
 
+autoUpdater.on('update-not-available', () => {
+  safeSend(win, 'update-not-available');
+});
+
 autoUpdater.on('error', (err) => {
   console.error('[UPDATER_ERROR] ' + err);
+  safeSend(win, 'update-error', err.message);
 });
 
 ipcMain.on('check-for-updates', () => {
@@ -129,6 +134,10 @@ ipcMain.on('start-update-download', () => {
 
 ipcMain.on('install-update-now', () => {
   autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion();
 });
 
 // Trigger Notification Access on startup
@@ -153,6 +162,8 @@ let currentIslandX = 0;
 let currentWidth = 440;
 let currentHeight = 66;
 let isInMeetingApp = false
+let isCallActive = false;
+let isControlsActive = false;
 let currentMeetingApp = 'Teams'
 let lastHasCam = false, lastHasMic = false
 let audioOutputDevice: 'Speaker' | 'Headphones' = 'Speaker'
@@ -232,6 +243,10 @@ ipcMain.on('set-window-dimensions', (_, d) => {
   currentWidth = d.w;
   currentHeight = d.h;
 });
+ipcMain.on('set-bubbles-state', (_, s) => {
+  isCallActive = s.call;
+  isControlsActive = s.controls;
+});
 
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -286,21 +301,26 @@ function createWindow() {
 
       const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
       
-      // Dynamic Hitbox PERFECT Sync (v7.6.1 - Peripheral Expansion)
+      // Dynamic Hitbox PERFECT Sync (v7.6.5 - Anti-Ghosting)
       const islandPhysicalX = screenCenterX + (currentIslandX || 0);
       const halfW = (currentWidth || 440) / 2;
       const h = (currentHeight || 66);
 
-      // Expansion to the LEFT to cover control/call bubbles
-      const isOverMainIsland = Math.abs(mouseX - islandPhysicalX) < (halfW + 15) && 
+      // 1. Detection zone for main island
+      const isOverMainIsland = Math.abs(mouseX - islandPhysicalX) < (halfW + 10) && 
                                mouseY >= (y - 5) && 
-                               mouseY < (y + h + 15);
+                               mouseY < (y + h + 10);
       
-      const islandLeftEdge = islandPhysicalX - halfW;
-      const isOverLeftBubbles = mouseX >= (islandLeftEdge - 320) &&
-                                mouseX < (islandLeftEdge - 5) &&
-                                mouseY >= (y - 5) &&
-                                mouseY < (y + 70);
+      // 2. Detection zone for left-side bubbles (only if active)
+      let isOverLeftBubbles = false;
+      if (!isExpandedMode && (isCallActive || isControlsActive)) {
+          const islandLeftEdge = islandPhysicalX - halfW;
+          const bubbleWidth = (isCallActive && isControlsActive) ? 140 : 70;
+          isOverLeftBubbles = mouseX >= (islandLeftEdge - bubbleWidth - 20) &&
+                              mouseX < (islandLeftEdge - 5) &&
+                              mouseY >= (y - 5) &&
+                              mouseY < (y + 70);
+      }
 
       const isOverPill = isOverMainIsland || isOverLeftBubbles;
       

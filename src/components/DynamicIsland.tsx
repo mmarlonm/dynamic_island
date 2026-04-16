@@ -8,140 +8,14 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 
-// ── Modern Reactive Sound Visualizer (5-bar Equalizer) ──────────────────────
-const SoundVisualizer = ({
-  isPlaying,
-  onIntensity,
-  onBeat,
-}: {
-  isPlaying: boolean;
-  onIntensity?: (v: number) => void;
-  onBeat?: (v: number) => void;
+// ── Pure UI Sound Visualizer (5-bar Equalizer) ────────────────────────────────
+const SoundVisualizer = ({ 
+  isPlaying, 
+  bars = [4, 4, 4, 4, 4] 
+}: { 
+  isPlaying: boolean; 
+  bars?: number[];
 }) => {
-  const [bars, setBars] = useState([4, 4, 4, 4, 4]); // Heights (1-16px)
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  // Beat detection state (transient detector)
-  const prevBassRef = useRef(0);
-  const beatPulseRef = useRef(0);
-
-  const stopStream = () => {
-    if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t: MediaStreamTrack) => t.stop());
-        streamRef.current = null;
-    }
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    analyserRef.current = null;
-  };
-
-  useEffect(() => {
-    let active = true;
-    let timer: any;
-
-    const setupAnalyser = async () => {
-      // 1. Mandatory cleanup of previous attempts
-      stopStream();
-
-      if (!isPlaying) {
-        setBars([4, 4, 4, 4, 4]);
-        if (onIntensity) onIntensity(0);
-        if (onBeat) onBeat(0);
-        return;
-      }
-
-      // Small delay: Chromium's desktop capture system needs safety gaps after song/state changes
-      timer = setTimeout(async () => {
-        try {
-          const ipc = (window as any).ipcRenderer;
-          const sourceId = await ipc?.invoke('get-system-audio-id');
-          if (!sourceId || !active) return;
-
-          const constraints = {
-            audio: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } },
-            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } }
-          };
-
-          const stream = await (window as any).navigator.mediaDevices.getUserMedia(constraints as any);
-          if (!active) {
-            stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
-            return;
-          }
-
-          streamRef.current = stream;
-          stream.getVideoTracks().forEach((t: MediaStreamTrack) => t.stop());
-
-          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const src = ctx.createMediaStreamSource(stream);
-          const ans = ctx.createAnalyser();
-          ans.fftSize = 64;
-          src.connect(ans);
-          analyserRef.current = ans;
-
-          const update = () => {
-            if (!active) return;
-            const data = new Uint8Array(ans.frequencyBinCount);
-            ans.getByteFrequencyData(data);
-
-            // ── Sustained intensity (for ambient glow) ──
-            if (onIntensity) {
-              const bassAvg = (data[0] + data[1] + data[2]) / 3;
-              const midAvg = (data[3] + data[4] + data[5]) / 3;
-              const intensity = (bassAvg * 0.75 + midAvg * 0.25) / 110;
-              onIntensity(Math.min(1, intensity));
-            }
-
-            // ── Beat / transient detection (attack pulse for rim flash) ──
-            if (onBeat) {
-              const bassNow = (data[0] + data[1] + data[2]) / 3 / 255;
-              const prevBass = prevBassRef.current;
-              const delta = bassNow - prevBass;
-              // Transient: sudden rise > 0.10 triggers a pulse
-              if (delta > 0.10) {
-                beatPulseRef.current = Math.min(1, beatPulseRef.current + delta * 2.5);
-              }
-              // Exponential decay: fast attack, natural tail (~8 frames)
-              beatPulseRef.current = beatPulseRef.current * 0.82;
-              prevBassRef.current = bassNow * 0.6 + prevBass * 0.4; // low-pass previous
-              onBeat(beatPulseRef.current);
-            }
-
-            const newBars = [
-              Math.max(4, (data[1] / 255) * 16),
-              Math.max(4, (data[3] / 255) * 16),
-              Math.max(4, (data[5] / 255) * 16),
-              Math.max(4, (data[2] / 255) * 16),
-              Math.max(4, (data[7] / 255) * 16)
-            ];
-            setBars(newBars);
-            rafRef.current = requestAnimationFrame(update);
-          };
-          update();
-        } catch (e) {
-          console.warn('[VISUALIZER] Audio capture failed:', e);
-          const sim = () => {
-            if (!active || !isPlaying) return;
-            const b = bars.map(() => Math.random() * 12 + 4);
-            setBars(b);
-            const fakeIntensity = Math.random() * 0.3;
-            if (onIntensity) onIntensity(fakeIntensity);
-            if (onBeat) onBeat(Math.random() > 0.85 ? Math.random() * 0.8 : 0);
-            rafRef.current = requestAnimationFrame(sim);
-          };
-          if (isPlaying) sim();
-        }
-      }, 150);
-    };
-
-    setupAnalyser();
-    return () => {
-      active = false;
-      clearTimeout(timer);
-      stopStream();
-    };
-  }, [isPlaying]);
-
-
   return (
     <div className="w-10 h-4 flex items-center justify-center gap-[3px] pointer-events-none px-1 overflow-hidden" 
          style={{ filter: !isPlaying ? 'grayscale(1) opacity(0.3)' : 'none' }}>
@@ -149,18 +23,15 @@ const SoundVisualizer = ({
         <motion.div
   key={i}
   animate={{ height: isPlaying ? h : 4 }}
-  transition={{ type: 'spring', stiffness: 350, damping: 18 }}
-  className="w-[3px] rounded-full"
-  style={{
-    background: isPlaying 
-      ? `linear-gradient(to top, #34d399, #3b82f6)` 
-      : 'rgba(255,255,255,0.2)'
-  }}
+  transition={{ type: 'spring', stiffness: 350, damping: 25, mass: 0.5 }}
+  className={clsx('w-[3px] rounded-full shadow-[0_0_8px_rgba(59,130,246,0.3)]', 
+    isPlaying ? 'bg-blue-400' : 'bg-gray-400 opacity-20')}
 />
       ))}
     </div>
   );
 };
+
 
 // ── Floating timer circle (pill-mode) ────────────────────────────────────────
 const TimerBubble = ({ time, total, isActive, isLightMode, onClick }: { time: number; total: number; isActive: boolean; isLightMode: boolean; onClick?: () => void }) => {
@@ -495,7 +366,7 @@ export const DynamicIsland = () => {
   const [lang, setLang]               = useState<'es' | 'en' | 'zh'>('es');
   const [isLightMode, setIsLightMode] = useState(false);
   const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>('Moderno');
-  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas', 'WhatsApp', 'YouTube']);
+  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas', 'WhatsApp', 'YouTube', 'Actualización']);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '', id: '' });
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
@@ -503,7 +374,8 @@ export const DynamicIsland = () => {
   const [wifiActive, setWifiActive] = useState(true);
   const [btActive, setBtActive]     = useState(true);
   const [musicIntensity, setMusicIntensity] = useState(0);
-  const [beatPulse, setBeatPulse]           = useState(0); // Sharp transient: 1.0 on hit, decays fast
+  const [beatPulse, setBeatPulse]           = useState(0); 
+  const [visualizerBars, setVisualizerBars] = useState([4, 4, 4, 4, 4]);
   const [weather, setWeather]         = useState({ temp: '22', condition: 'Clear', city: 'Local' });
   const [volume, setVolume]           = useState(50);
   const [meeting, setMeeting] = useState({ isActive: false, app: '', device: '', micActive: false, camActive: false });
@@ -513,6 +385,7 @@ export const DynamicIsland = () => {
   // 0-100 system volume
 
   const [timerTime, setTimerTime]      = useState(0);
+  const [currentVersion, setCurrentVersion] = useState('0.0.0');
   const [updateInfo, setUpdateInfo]    = useState<{version: string, status: 'idle' | 'available' | 'downloading' | 'ready'} | null>(null);
   const [updateProgress, setUpdateProgress] = useState(0);
   const [timerTotal, setTimerTotal]    = useState(0);
@@ -540,9 +413,128 @@ export const DynamicIsland = () => {
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [lastSelectedCity, setLastSelectedCity] = useState(localStorage.getItem('weatherLocation') || '');
   const [showControlsBubble, setShowControlsBubble] = useState(JSON.parse(localStorage.getItem('showControlsBubble') || 'true'));
-  const [lastNotifTime, setLastNotifTime] = useState(0);
   const [recentNotif, setRecentNotif] = useState<any>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // ── CENTRALIZED AUDIO CAPTURE ENGINE (v1.0 Sync) ──────────────────────────
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioAnalyserRef = useRef<AnalyserNode | null>(null);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioRafRef = useRef<number | null>(null);
+  const prevBassRef = useRef(0);
+  const beatPulseRef = useRef(0);
+
+  const stopAudioCapture = () => {
+    if (audioRafRef.current) cancelAnimationFrame(audioRafRef.current);
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t: any) => t.stop());
+      audioStreamRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    audioAnalyserRef.current = null;
+    audioSourceRef.current = null;
+  };
+
+  useEffect(() => {
+    let active = true;
+    let setupTimer: any;
+
+    const setupAudio = async () => {
+      stopAudioCapture();
+      if (!media.isPlaying) {
+        setMusicIntensity(0);
+        setBeatPulse(0);
+        setVisualizerBars([4, 4, 4, 4, 4]);
+        return;
+      }
+
+      setupTimer = setTimeout(async () => {
+        try {
+          const ipc = (window as any).ipcRenderer;
+          const sourceId = await ipc?.invoke('get-system-audio-id');
+          if (!sourceId || !active) return;
+
+          const stream = await (window as any).navigator.mediaDevices.getUserMedia({
+            audio: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } },
+            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } }
+          } as any);
+
+          if (!active) {
+            stream.getTracks().forEach((t: any) => t.stop());
+            return;
+          }
+
+          audioStreamRef.current = stream;
+          stream.getVideoTracks().forEach((t: any) => t.stop()); // Only need audio
+
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const ans = ctx.createAnalyser();
+          ans.fftSize = 64;
+          const src = ctx.createMediaStreamSource(stream);
+          src.connect(ans);
+          
+          audioContextRef.current = ctx;
+          audioAnalyserRef.current = ans;
+          audioSourceRef.current = src;
+
+          const loop = () => {
+            if (!active || !ans) return;
+            const data = new Uint8Array(ans.frequencyBinCount);
+            ans.getByteFrequencyData(data);
+
+            // 1. Sustained Intensity (Norm: 85 for sensitivity)
+            const bassAvg = (data[0] + data[1] + data[2]) / 3;
+            const midAvg = (data[3] + data[4] + data[5]) / 3;
+            const intensity = (bassAvg * 0.75 + midAvg * 0.25) / 85; 
+            setMusicIntensity(Math.min(1, intensity));
+
+            // 2. Beat Pulse Detection (Threshold: 0.07 for high response)
+            const bassNow = (data[0] + data[1] + data[2]) / 3 / 255;
+            const delta = bassNow - prevBassRef.current;
+            if (delta > 0.07) {
+              beatPulseRef.current = Math.min(1, beatPulseRef.current + delta * 3.0);
+            }
+            beatPulseRef.current *= 0.82; // Decay
+            prevBassRef.current = bassNow * 0.6 + prevBassRef.current * 0.4;
+            setBeatPulse(beatPulseRef.current);
+
+            // 3. Visualizer Bars (Mapped to 4-16px)
+            setVisualizerBars([
+              Math.max(4, (data[1] / 255) * 16),
+              Math.max(4, (data[3] / 255) * 16),
+              Math.max(4, (data[5] / 255) * 16),
+              Math.max(4, (data[2] / 255) * 16),
+              Math.max(4, (data[7] / 255) * 16)
+            ]);
+
+            audioRafRef.current = requestAnimationFrame(loop);
+          };
+          loop();
+        } catch (e) {
+          console.warn('[AUDIO_SYNC] Capture failed, using fallback simulation:', e);
+          const sim = () => {
+            if (!active || !media.isPlaying) return;
+            setVisualizerBars(prev => prev.map(() => Math.random() * 12 + 4));
+            setMusicIntensity(Math.random() * 0.4);
+            setBeatPulse(Math.random() > 0.88 ? 0.6 : 0);
+            audioRafRef.current = requestAnimationFrame(sim);
+          };
+          if (media.isPlaying) sim();
+        }
+      }, 200);
+    };
+
+    setupAudio();
+    return () => {
+      active = false;
+      clearTimeout(setupTimer);
+      stopAudioCapture();
+    };
+  }, [media.isPlaying]);
 
   useEffect(() => {
     (window as any).ipcRenderer?.invoke('get-auto-launch').then(setAutoLaunch);
@@ -681,9 +673,9 @@ export const DynamicIsland = () => {
   }, []);
 
   const T: Record<string, any> = {
-    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-inicio' },
-    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-Launch' },
-    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'自动启动' },
+    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-inicio', update:'Actualización' },
+    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-Launch', update:'Update' },
+    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'自动启动', update:'更新' },
   };
   const t = T[lang] ?? T.es;
 
@@ -693,6 +685,7 @@ export const DynamicIsland = () => {
     const ipc = (window as any).ipcRenderer;
 
     if (ipc) {
+      ipc.invoke('get-app-version').then((v: string) => setCurrentVersion(v));
       ipc.send('set-ignore-mouse-events', true); // Estado inicial: ignorar
       ipc.invoke('get-current-media').then((d: any) => { if (d) setMedia(d); }).catch(() => {});
       ipc.invoke('get-volume').then((v: any) => { if (typeof v === 'number') setVolume(v); }).catch(() => {});
@@ -701,11 +694,17 @@ export const DynamicIsland = () => {
         setNotifications(p => {
           const exists = p.find(n => n.id === d.id);
           if (exists) return p.map(n => n.id === d.id ? { ...n, ...d } : n);
+          
+          // Enhanced notification visibility
+          setRecentNotif(d);
+          setTimeout(() => setRecentNotif(null), 6000); // Show banner for 6s
+
           return [d, ...p.slice(0, 14)]; // Guardar hasta 15 recientes
         });
       });
       ipc.on('notification-remove', (_: any, id: string) => {
         setNotifications(p => p.filter(n => String(n.id) !== String(id)));
+        setRecentNotif((current: any) => (current && String(current.id) === String(id)) ? null : current);
       });
 
       // Update System Listeners
@@ -726,6 +725,16 @@ export const DynamicIsland = () => {
 
       ipc.on('update-ready', () => {
         setUpdateInfo(p => p ? { ...p, status: 'ready' } : null);
+      });
+
+      ipc.on('update-not-available', () => {
+        setUpdateInfo(p => p && p.status === 'idle' ? null : p); // Only clear if we were checking
+        // We can show a toast or something later
+      });
+
+      ipc.on('update-error', (_: any, err: string) => {
+        console.error('Update error:', err);
+        setUpdateInfo(null);
       });
       ipc.on('system-update',  (_: any, d: any) => setSystemInfo(d));
       ipc.on('weather-update', (_: any, d: any) => setWeather(d));
@@ -809,10 +818,17 @@ export const DynamicIsland = () => {
     // If we transition from expanded to collapsed, set a "collapsing" flag
     if (!isExpanded) {
       setIsCollapsing(true);
-      const timer = setTimeout(() => setIsCollapsing(false), 400); // Wait for sync
+      setIsTransitioning(true);
+      const timer = setTimeout(() => {
+        setIsCollapsing(false);
+        setIsTransitioning(false);
+      }, 400); // Wait for sync
       return () => clearTimeout(timer);
     } else {
       setIsCollapsing(false);
+      setIsTransitioning(true);
+      const timer = setTimeout(() => setIsTransitioning(false), 400); 
+      return () => clearTimeout(timer);
     }
   }, [isHovered, isPinned, showSettings, isExpanded]);
 
@@ -859,7 +875,11 @@ export const DynamicIsland = () => {
     ipc?.send('set-window-dimensions', { w: totalW, h: totalH });
     ipc?.send('set-is-expanded', isExpanded);
     ipc?.send('set-is-super-pill', superPill && !isExpanded);
-  }, [isExpanded, superPill, activeView, isHovered, isPinned, showSettings, showPreview]);
+    ipc?.send('set-bubbles-state', { 
+      call: meeting.isActive && !isLarge, 
+      controls: showControlsBubble && !isLarge 
+    });
+  }, [isExpanded, superPill, activeView, isHovered, isPinned, showSettings, showPreview, meeting.isActive, showControlsBubble]);
 
 
   useEffect(() => {
@@ -909,10 +929,6 @@ export const DynamicIsland = () => {
 
   return (
     <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999] px-[50px] pb-[50px]">
-      {/* Active analyzer layer: 1x1 pixel but "visible" to bypass background capture throttling */}
-      <div className="absolute top-0 left-0 w-[1px] h-[1px] opacity-[0.01] pointer-events-none overflow-hidden z-[-1]">
-        <SoundVisualizer isPlaying={media.isPlaying} onIntensity={setMusicIntensity} onBeat={setBeatPulse} />
-      </div>
       <div className="relative flex items-start justify-center">
         {/* Call / Control Bubbles — Left side (Outside Body to prevent hover triggers) */}
         <motion.div 
@@ -938,31 +954,33 @@ export const DynamicIsland = () => {
               </div>
             )}
 
-             {!isExpanded && (
-               <div 
-                 className="pointer-events-auto"
-                 onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
-                 onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
-               >
-                 <ControlCenterBubble 
-                   key="controls"
-                   wifiActive={wifiActive}
-                   btActive={btActive}
-                   volume={volume}
-                   onToggleWifi={() => {
-                     setWifiActive(!wifiActive);
-                     (window as any).ipcRenderer?.invoke('toggle-wifi');
-                   }}
-                   onToggleBt={() => {
-                     setBtActive(!btActive);
-                     (window as any).ipcRenderer?.invoke('toggle-bluetooth');
-                   }}
-                   onVolumeChange={(v) => {
-                     setVol(v);
-                   }}
-                 />
-               </div>
-             )}
+              {showControlsBubble && !isExpanded && (
+                <div 
+                  className="pointer-events-auto"
+                  onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
+                  onMouseLeave={() => {
+                    if (!isHovered) (window as any).ipcRenderer?.send('set-ignore-mouse-events', true);
+                  }}
+                >
+                  <ControlCenterBubble 
+                    key="controls"
+                    wifiActive={wifiActive}
+                    btActive={btActive}
+                    volume={volume}
+                    onToggleWifi={() => {
+                      setWifiActive(!wifiActive);
+                      (window as any).ipcRenderer?.invoke('toggle-wifi');
+                    }}
+                    onToggleBt={() => {
+                      setBtActive(!btActive);
+                      (window as any).ipcRenderer?.invoke('toggle-bluetooth');
+                    }}
+                    onVolumeChange={(v) => {
+                      setVol(v);
+                    }}
+                  />
+                </div>
+              )}
           </AnimatePresence>
         </motion.div>
 
@@ -976,10 +994,12 @@ export const DynamicIsland = () => {
           dragMomentum={false}
           onMouseEnter={() => {
             setIsHovered(true);
+            (window as any).ipcRenderer?.send('set-ignore-mouse-events', false);
           }}
           onMouseLeave={() => {
             if (!isPinned && !showSettings) {
               setIsHovered(false);
+              (window as any).ipcRenderer?.send('set-ignore-mouse-events', true);
             }
           }}
           className="relative pointer-events-auto cursor-default"
@@ -1023,122 +1043,147 @@ export const DynamicIsland = () => {
                 transition={{ type: 'spring', stiffness: 200, damping: 20 }}
              />
 
-             {/* ── DISRUPTIVE RHYTHM CONTOUR SYSTEM ── */}
+             {/* ── QUANTUM PULSE AURA (Innovative Rhythm System) ── */}
              <AnimatePresence>
                {superPill && !isExpanded && media.isPlaying && (() => {
                  const mi  = musicIntensity || 0;   // sustained energy 0-1
                  const bp  = beatPulse     || 0;    // transient beat pulse 0-1 (fast decay)
                  const w = 72;
-                 const h = 42 + mi * 4;
+                 
+                 // High-Response Rhythmic Geometry
+                 const baseH = 42 + mi * 8;
+                 const defH = baseH + bp * 28;      // Aggressive physical deformation on beat
                  const totalW = w + 68;
-                 const neck = 42;
-                 const spineD = `M 4 2 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW-4} 2`;
-                 const fullD  = `M 2 1 C ${neck} -2, ${neck} ${h+2}, ${totalW/2} ${h+2} S ${totalW-neck} -2, ${totalW-2} 1`;
+                 const neck = 42 - bp * 15;         // Neck narrows sharply on beat
+                 
+                 // Dynamic Path Logic
+                 const spineD = `M 4 2 C ${neck} 0, ${neck} ${defH}, ${totalW/2} ${defH + bp*8} S ${totalW-neck} 0, ${totalW-4} 2`;
+                 const auraD  = `M 0 0 C ${neck-4} -4, ${neck-4} ${defH+10}, ${totalW/2} ${defH+16} S ${totalW-neck+4} -4, ${totalW} 0`;
+                 
                  return (
-                   <g key="rhythm-system">
-                     {/* Layer 1: Plasma base — breathes with sustained energy, slow drift */}
+                   <g key="quantum-pulse-system">
+                     {/* 1. Volumetric Energy Cloud (Glow Base) */}
                      <motion.path
-                       d={spineD}
+                       d={auraD}
                        fill="none"
-                       stroke="url(#rgPlasma)"
+                       stroke="url(#rgQuantum)"
                        strokeLinecap="round"
                        animate={{
-                         strokeWidth: 3 + mi * 8,
-                         opacity: 0.1 + mi * 0.25,
+                         strokeWidth: 4 + mi * 25 + bp * 45,
+                         opacity: 0.1 + mi * 0.3 + bp * 0.5,
                        }}
-                        transition={{ duration: 0.18 }}
-                       style={{ filter: `blur(${4 + mi * 10}px)` }}
+                       transition={{ duration: 0.08 }}
+                       style={{ 
+                         filter: `blur(${8 + mi * 20 + bp * 35}px)`, 
+                         mixBlendMode: 'screen',
+                         pointerEvents: 'none'
+                       }}
                      />
 
-                     {/* Layer 2: Chroma rim — snaps to beat pulse, instant attack */}
-                     <motion.path
-                       d={fullD}
-                       fill="none"
-                       stroke="url(#rgChroma)"
-                       strokeLinecap="round"
-                       animate={{
-                         strokeWidth: 0.5 + bp * 2.5,          // snaps on beat
-                         opacity: 0.25 + mi * 0.2 + bp * 0.55, // beat adds flash
-                       }}
-                       transition={{
-                         strokeWidth: { duration: bp > 0.1 ? 0 : 0.25 },  // instant attack, slow decay
-                         opacity:     { duration: bp > 0.1 ? 0 : 0.25 },
-                       }}
-                       style={{ filter: `drop-shadow(0 0 ${1 + bp * 14}px rgba(139,92,246,${0.2 + bp * 0.75})) drop-shadow(0 0 ${bp * 5}px #e879f9)` }}
-                     />
-
-                     {/* Layer 3: Arc flash — fires only on beat pulse (> threshold) */}
-                     {bp > 0.18 && (
+                     {/* 2. Interwoven Harmonic Rims (3 Layers) */}
+                     {[1, 1.05, 1.1].map((scale, i) => (
                        <motion.path
-                         d={fullD}
+                         key={i}
+                         d={spineD}
                          fill="none"
-                         stroke="url(#rgArc)"
+                         stroke="url(#rgPulse)"
                          strokeLinecap="round"
-                         initial={{ strokeWidth: 0, opacity: 0 }}
+                         strokeWidth={0.5 + (2-i) * 0.5 + bp * 1.5}
                          animate={{
-                           strokeWidth: bp * 4,
-                           opacity: bp * 0.95,
+                           opacity: (0.3 - i * 0.1) + mi * 0.4 + bp * 0.6,
+                           scaleX: scale * (1 + bp * 0.05),
+                           scaleY: scale * (1 + bp * 0.08),
                          }}
-                         exit={{ opacity: 0, strokeWidth: 0, transition: { duration: 0.2 } }}
-                         transition={{ duration: 0 }}  // instant attack
-                         style={{ filter: `drop-shadow(0 0 ${bp * 22}px rgba(236,72,153,${bp})) drop-shadow(0 0 ${bp * 8}px #fff)` }}
+                         transition={{ duration: 0.1 }}
+                         style={{ 
+                           transformOrigin: 'center top', 
+                           filter: i === 0 ? 'none' : 'blur(2px)',
+                           pointerEvents: 'none'
+                         }}
                        />
+                     ))}
+
+                     {/* 3. Spectral Particles (Racing Nodes) */}
+                     {[0.1, 0.3, 0.5, 0.7, 0.9].map((offset, i) => (
+                       <motion.circle
+                         key={`p-${i}`}
+                         r={1.2 + bp * 3.5}
+                         fill="#fff"
+                         animate={{
+                           offsetDistance: [`${offset * 100}%`, `${(offset * 100 + (40 + bp * 60)) % 100}%`],
+                           opacity: [0, 0.9 + bp * 0.1, 0],
+                         }}
+                         transition={{
+                           duration: 1.2 / (1 + bp * 2), // High acceleration on beat
+                           repeat: Infinity,
+                           ease: "linear"
+                         }}
+                         style={{
+                           offsetPath: `path("${spineD}")`,
+                           filter: 'drop-shadow(0 0 5px #fff) drop-shadow(0 0 10px #3b82f6)',
+                           pointerEvents: 'none'
+                         }}
+                       />
+                     ))}
+
+                     {/* 4. Peak Digital Spark (Top Center) */}
+                     {bp > 0.2 && (
+                       <motion.g
+                         initial={{ opacity: 0, scale: 0 }}
+                         animate={{ opacity: 1, scale: 1.2 + bp * 0.5 }}
+                         exit={{ opacity: 0, scale: 2 }}
+                         className="origin-center"
+                         style={{ x: totalW / 2, y: defH + bp * 4 }}
+                       >
+                         <motion.circle r={2 + bp * 12} fill="white" style={{ filter: 'blur(4px)' }} />
+                         <motion.circle r={1 + bp * 6} fill="white" />
+                         <motion.rect x={-0.5} y={-20} width={1} height={40} fill="white" opacity={0.6} />
+                         <motion.rect x={-20} y={-0.5} width={40} height={1} fill="white" opacity={0.6} />
+                       </motion.g>
                      )}
 
-                     {/* Layer 4: Shimmer scan — ambient texture on sustained energy */}
+                     {/* 5. Chromatic Aberration Flare */}
                      <motion.path
                        d={spineD}
                        fill="none"
-                       stroke="url(#rgShimmer)"
-                       strokeLinecap="round"
-                       strokeWidth={0.4 + mi * 0.7}
-                       animate={{ opacity: 0.15 + mi * 0.35 + bp * 0.3 }}
-                       transition={{ duration: 0.08 }}
-                       style={{ mixBlendMode: 'screen' }}
+                       stroke="#ff00ff"
+                       strokeWidth={0.4}
+                       animate={{ 
+                         opacity: bp * 0.8, 
+                         x: [-2, 2, -2],
+                         y: [0, 1, 0]
+                       }}
+                       transition={{ duration: 0.04, repeat: Infinity }}
+                       style={{ mixBlendMode: 'screen', filter: 'blur(1.5px)', pointerEvents: 'none' }}
                      />
                    </g>
                  );
                })()}
              </AnimatePresence>
 
-             <defs>
-               <linearGradient id="rgPlasma" x1="0%" y1="0%" x2="100%" y2="0%">
-                 <stop offset="0%" stopColor="#06b6d4" />
-                 <stop offset="40%" stopColor="#8b5cf6" />
-                 <stop offset="100%" stopColor="#ec4899" />
-                 <animate attributeName="x1" values="0%;-80%;0%" dur="2.4s" repeatCount="indefinite" />
-                 <animate attributeName="x2" values="100%;180%;100%" dur="2.4s" repeatCount="indefinite" />
-               </linearGradient>
-               <linearGradient id="rgChroma" x1="0%" y1="0%" x2="100%" y2="0%">
-                 <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.9" />
-                 <stop offset="25%" stopColor="#818cf8" />
-                 <stop offset="55%" stopColor="#e879f9" />
-                 <stop offset="80%" stopColor="#f472b6" />
-                 <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.9" />
-                 <animate attributeName="x1" values="0%;100%;0%" dur="1.6s" repeatCount="indefinite" />
-                 <animate attributeName="x2" values="100%;200%;100%" dur="1.6s" repeatCount="indefinite" />
-               </linearGradient>
-               <linearGradient id="rgArc" x1="0%" y1="0%" x2="100%" y2="0%">
-                 <stop offset="0%" stopColor="#ffffff" stopOpacity="0.0" />
-                 <stop offset="30%" stopColor="#e879f9" stopOpacity="1" />
-                 <stop offset="50%" stopColor="#ffffff" stopOpacity="1" />
-                 <stop offset="70%" stopColor="#38bdf8" stopOpacity="1" />
-                 <stop offset="100%" stopColor="#ffffff" stopOpacity="0.0" />
-                 <animate attributeName="x1" values="0%;-100%;0%" dur="0.9s" repeatCount="indefinite" />
-                 <animate attributeName="x2" values="100%;200%;100%" dur="0.9s" repeatCount="indefinite" />
-               </linearGradient>
-               <linearGradient id="rgShimmer" x1="0%" y1="0%" x2="100%" y2="0%">
-                 <stop offset="0%" stopColor="transparent" />
-                 <stop offset="40%" stopColor="transparent" />
-                 <stop offset="50%" stopColor="white" stopOpacity="0.9" />
-                 <stop offset="60%" stopColor="transparent" />
-                 <stop offset="100%" stopColor="transparent" />
-                 <animate attributeName="x1" values="-100%;100%;-100%" dur="1.2s" repeatCount="indefinite" />
-                 <animate attributeName="x2" values="0%;200%;0%" dur="1.2s" repeatCount="indefinite" />
-               </linearGradient>
-             </defs>
-          </svg>
-          <div className="absolute inset-0 z-[-2] rounded-[34px]" style={{ backdropFilter: 'blur(24px)', background: 'transparent' }} />
+              <defs>
+                <linearGradient id="rgQuantum" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#06b6d4" />
+                  <stop offset="30%" stopColor="#c084fc" />
+                  <stop offset="70%" stopColor="#4f46e5" />
+                  <stop offset="100%" stopColor="#06b6d4" />
+                  <animate attributeName="x1" values="0%;-100%;0%" dur="3s" repeatCount="indefinite" />
+                  <animate attributeName="x2" values="100%;200%;100%" dur="3s" repeatCount="indefinite" />
+                </linearGradient>
+                <linearGradient id="rgPulse" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#38bdf8" />
+                  <stop offset="50%" stopColor="#ffffff" />
+                  <stop offset="100%" stopColor="#38bdf8" />
+                  <animate attributeName="x1" values="-50%;150%;-50%" dur="1.2s" repeatCount="indefinite" />
+                  <animate attributeName="x2" values="0%;200%;0%" dur="1.2s" repeatCount="indefinite" />
+                </linearGradient>
+                <radialGradient id="rgSpark">
+                  <stop offset="10%" stopColor="white" />
+                  <stop offset="90%" stopColor="#3b82f6" stopOpacity="0" />
+                </radialGradient>
+              </defs>
+           </svg>
+           <div className="absolute inset-0 z-[-2] rounded-[34px]" style={{ backdropFilter: 'blur(24px)', background: 'transparent' }} />
         </div>
 
         {/* Content wrapper — centered relative to the whole silhouette */}
@@ -1159,22 +1204,39 @@ export const DynamicIsland = () => {
         >
           {superPill && !isCollapsing ? (
             <div className="flex items-center justify-center w-full h-full" onPointerDown={(e) => e.stopPropagation()}>
-              {(() => {
-                const mode = superPillMode === 'Auto' ? (media.isPlaying ? 'Multimedia' : 'Clima') : superPillMode;
-                if (mode === 'Multimedia') {
-                  return (
-                    <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/10 bg-zinc-900 relative shadow-2xl">
-                      {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-4 h-4 m-auto opacity-10" />}
-                    </motion.div>
-                  );
-                } else {
-                  return (
-                    <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/20 shadow-lg">
-                      <Cloud className="w-5 h-5 text-blue-400" />
-                    </motion.div>
-                  );
-                }
-              })()}
+              <AnimatePresence mode="wait">
+                {recentNotif && !isExpanded ? (
+                  <motion.div 
+                    key="notif-banner"
+                    initial={{ y: 20, opacity: 0 }} 
+                    animate={{ y: 0, opacity: 1 }} 
+                    exit={{ y: -20, opacity: 0 }}
+                    className="flex items-center gap-2 px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full"
+                  >
+                    <Bell className="w-3 h-3 text-blue-400 animate-bounce" />
+                    <span className="text-[10px] font-black text-white truncate max-w-[140px]">{recentNotif.text}</span>
+                  </motion.div>
+                ) : (
+                  <>
+                    {(() => {
+                      const mode = superPillMode === 'Auto' ? (media.isPlaying ? 'Multimedia' : 'Clima') : superPillMode;
+                      if (mode === 'Multimedia') {
+                        return (
+                          <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/10 bg-zinc-900 relative shadow-2xl">
+                            {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-4 h-4 m-auto opacity-10" />}
+                          </motion.div>
+                        );
+                      } else {
+                        return (
+                          <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/20 shadow-lg">
+                            <Cloud className="w-5 h-5 text-blue-400" />
+                          </motion.div>
+                        );
+                      }
+                    })()}
+                  </>
+                )}
+              </AnimatePresence>
             </div>
           ) : (
             <div className="flex items-center justify-between w-full px-4 h-full">
@@ -1193,12 +1255,29 @@ export const DynamicIsland = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-4 mr-3">
-                    {media.isPlaying && <SoundVisualizer isPlaying={media.isPlaying} />}
-                    <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
-                      <Cloud className="w-3 h-3 text-blue-400" />
-                      <span className="tracking-tight">{weather.temp}°</span>
-                      <span className="ml-1 opacity-40 font-bold">{weather.city}</span>
-                    </div>
+                    <AnimatePresence mode="wait">
+                      {recentNotif && !isExpanded ? (
+                        <motion.div 
+                          key="pill-notif"
+                          initial={{ x: 10, opacity: 0 }} 
+                          animate={{ x: 0, opacity: 1 }} 
+                          exit={{ x: -10, opacity: 0 }}
+                          className="flex items-center gap-2 px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 rounded-full"
+                        >
+                          <Bell className="w-2.5 h-2.5 text-blue-400 animate-pulse" />
+                          <span className="text-[9px] font-black text-white truncate max-w-[100px] uppercase">{recentNotif.app}</span>
+                        </motion.div>
+                      ) : (
+                        <div className="flex items-center gap-4">
+                          {media.isPlaying && <SoundVisualizer isPlaying={media.isPlaying} bars={visualizerBars} />}
+                          <div className={clsx('flex items-center gap-1 py-0.5 px-2 rounded-full border text-[9px] font-black', isLightMode ? 'bg-black/5 border-black/10' : 'bg-white/5 border-white/10')}>
+                            <Cloud className="w-3 h-3 text-blue-400" />
+                            <span className="tracking-tight">{weather.temp}°</span>
+                            <span className="ml-1 opacity-40 font-bold">{weather.city}</span>
+                          </div>
+                        </div>
+                      )}
+                    </AnimatePresence>
                     <div className="flex items-center gap-1 font-black text-[12px] tracking-tighter" style={{ opacity: 0.35 }}>
                       <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                       <span className="text-[7px] uppercase font-mono">{currentTime.getHours() >= 12 ? 'PM' : 'AM'}</span>
@@ -1214,7 +1293,7 @@ export const DynamicIsland = () => {
                     <div className="w-8 h-8 rounded-full overflow-hidden border border-white/10 bg-zinc-900 shrink-0">
                        {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-4 h-4 m-auto opacity-10" />}
                     </div>
-                    <SoundVisualizer isPlaying={media.isPlaying} />
+                    <SoundVisualizer isPlaying={media.isPlaying} bars={visualizerBars} />
                   </div>
                   <div className="flex items-baseline gap-2">
                     <span className="text-[18px] font-black tracking-[-0.05em] text-blue-400">
@@ -1238,7 +1317,7 @@ export const DynamicIsland = () => {
                     <span className="text-[10px] font-bold opacity-30 truncate uppercase">{media.isPlaying ? `- ${media.artist}` : '- Todo en orden'}</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {media.isPlaying && <SoundVisualizer isPlaying={media.isPlaying} />}
+                    {media.isPlaying && <SoundVisualizer isPlaying={media.isPlaying} bars={visualizerBars} />}
                     <Cloud className="w-3.5 h-3.5 text-blue-400 opacity-50" />
                     <span className="text-[13px] font-black tabular-nums">{weather.temp}°</span>
                   </div>
@@ -1280,7 +1359,7 @@ export const DynamicIsland = () => {
                 }
               }}
             >
-              {(['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'WhatsApp', 'YouTube', 'Sistema', 'Llamada'] as const).map(v =>
+              {(['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'Actualización', 'WhatsApp', 'YouTube', 'Sistema', 'Llamada'] as const).map(v =>
                 visibleTabs.includes(v) && (
                   <button
                     key={v}
@@ -1299,12 +1378,13 @@ export const DynamicIsland = () => {
                     {v === 'Herramientas' && <Timer     className="w-2.5 h-2.5" />}
                     {v === 'Llamada'      && <Video      className="w-2.5 h-2.5" />}
                     {v === 'WhatsApp'     && <MessageCircle className="w-2.5 h-2.5" />}
+                    {v === 'Actualización' && <Download className="w-2.5 h-2.5" />}
                     {v === 'YouTube'      && (
                       <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
                       </svg>
                     )}
-                    {t[v === 'Notificación' ? 'notificacion' : (v === 'WhatsApp' ? 'whatsapp' : (v === 'YouTube' ? 'youtube' : (v === 'Herramientas' ? 'timer' : v.toLowerCase())))] || v}
+                    {t[v === 'Notificación' ? 'notificacion' : (v === 'WhatsApp' ? 'whatsapp' : (v === 'YouTube' ? 'youtube' : (v === 'Herramientas' ? 'timer' : (v === 'Actualización' ? 'update' : v.toLowerCase()))))] || v}
                   </button>
                 )
               )}
@@ -1451,9 +1531,9 @@ export const DynamicIsland = () => {
                          <span className="text-[10px] font-bold opacity-30 truncate uppercase tracking-widest">{media.artist}</span>
                          <div className="flex items-center gap-4 mt-2">
                             <button onClick={() => (window as any).ipcRenderer?.invoke('media-command', 'playPause')} className="opacity-60 hover:opacity-100 transition-opacity">
-                              {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
+                              {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
                             </button>
-                            <SoundVisualizer isPlaying={media.isPlaying} />
+                            <SoundVisualizer isPlaying={media.isPlaying} bars={visualizerBars} />
                          </div>
                        </div>
                      </div>
@@ -1627,7 +1707,7 @@ export const DynamicIsland = () => {
                       </div>
                     )}
                   </motion.div>
-                  {!showPreview && <SoundVisualizer isPlaying={media.isPlaying} />}
+                  {!showPreview && <SoundVisualizer isPlaying={media.isPlaying} bars={visualizerBars} />}
                 </div>
 
                 {/* Centro: Info de pista + Controles principales */}
@@ -1835,7 +1915,7 @@ export const DynamicIsland = () => {
               onPointerDown={(e) => e.stopPropagation()}
               onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
             >
-              <div className="flex-1 rounded-[34px] overflow-hidden border border-white/5 bg-black relative flex flex-col">
+              <div className={clsx("flex-1 rounded-[34px] overflow-hidden border border-white/5 bg-black relative flex flex-col transition-opacity", isTransitioning && "opacity-20 pointer-events-none")}>
                 {(window as any).ipcRenderer && (
                   <webview
                     ref={whatsappWebviewRef}
@@ -1863,7 +1943,7 @@ export const DynamicIsland = () => {
               onPointerDown={(e) => e.stopPropagation()}
               onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
             >
-              <div className="flex-1 rounded-[20px] overflow-hidden border border-red-500/10 bg-black relative flex flex-col shadow-2xl">
+              <div className={clsx("flex-1 rounded-[20px] overflow-hidden border border-red-500/10 bg-black relative flex flex-col shadow-2xl transition-opacity", isTransitioning && "opacity-20 pointer-events-none")}>
                 {/* Minimal YouTube toolbar — quick shortcuts only */}
                 <div className="flex items-center gap-2 px-3 py-1.5 shrink-0 bg-black/80 backdrop-blur-xl border-b border-white/5">
                   {/* Logo → home */}
@@ -1923,91 +2003,141 @@ export const DynamicIsland = () => {
               </div>
             </div>
 
-            {/* ACTUALIZACIÓN REMOTA */}
-            {activeView === 'Actualización' && updateInfo && (
+            {/* ACTUALIZACIÓN REMOTA (Version Center) */}
+            {activeView === 'Actualización' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="absolute inset-0 flex flex-col gap-4 p-8">
-                <div className="flex justify-between items-center px-2">
+                <div className="flex justify-between items-center px-2 shrink-0">
                   <div className="flex flex-col">
-                    <span className="text-[12px] font-black uppercase tracking-[0.3em] text-blue-500">Notchly Update</span>
-                    <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Repositorio: GitHub</span>
+                    <span className="text-[14px] font-black uppercase tracking-[0.3em] text-blue-500">Notchly Update</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Versión Actual:</span>
+                      <span className="text-[10px] font-black text-white/60">v{currentVersion}</span>
+                    </div>
                   </div>
                   <div className="px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20">
-                    <span className="text-[11px] font-black text-blue-400">v{updateInfo.version}</span>
+                    <span className="text-[11px] font-black text-blue-400 uppercase tracking-tighter">Canal: Estable</span>
                   </div>
                 </div>
                 
-                <div className="flex-1 flex flex-col justify-center items-center gap-4 text-center px-10">
-                  {updateInfo.status === 'available' && (
+                <div className="flex-1 flex flex-col justify-center items-center gap-6 text-center px-10">
+                  {!updateInfo ? (
                     <>
-                      <div className="w-20 h-20 rounded-[30px] bg-blue-500/10 flex items-center justify-center text-blue-500 mb-2 border border-blue-500/10 shadow-lg">
-                        <Download className="w-10 h-10" />
+                      <div className="w-24 h-24 rounded-[38px] bg-blue-500/5 flex items-center justify-center text-blue-500/30 mb-2 border border-blue-500/10 relative overflow-hidden group">
+                        <motion.div 
+                          animate={{ rotate: 360 }} 
+                          transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
+                          className="absolute inset-0 opacity-10"
+                        >
+                          <Settings className="w-full h-full p-4" />
+                        </motion.div>
+                        <CheckSquare className="w-10 h-10 text-blue-400 shadow-xl" />
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[18px] font-black tracking-tight tracking-widest uppercase">Actualización Lista</span>
-                        <p className="text-[11px] text-white/50 leading-relaxed font-bold uppercase">Mejoras de rendimiento, corrección de <br/>errores y nuevas funciones dinámicas.</p>
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[20px] font-black tracking-tight uppercase tracking-widest">Sistema al Día</span>
+                        <p className="text-[11px] text-white/40 leading-relaxed font-bold uppercase max-w-[280px]">No hay actualizaciones pendientes. Tu versión de Notchly es la más reciente.</p>
                       </div>
-                    </>
-                  )}
-                  
-                  {updateInfo.status === 'downloading' && (
-                    <>
-                      <div className="flex flex-col gap-3 w-full items-center">
-                        <span className="text-[14px] font-black uppercase tracking-widest text-blue-500">Descargando Paquete...</span>
-                        <div className="w-full h-3 bg-white/5 rounded-full overflow-hidden border border-white/5 relative">
-                          <motion.div 
-                            className="absolute left-0 top-0 h-full bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)]"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${updateProgress}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between w-full text-[10px] font-black text-white/40 uppercase tracking-widest">
-                          <span>Instalador Remoto</span>
-                          <span className="text-blue-400">{Math.round(updateProgress)}%</span>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                  
-                  {updateInfo.status === 'ready' && (
-                    <>
-                      <motion.div 
-                        initial={{ scale: 0.9 }}
-                        animate={{ scale: 1 }}
-                        className="w-20 h-20 rounded-[30px] bg-green-500/10 flex items-center justify-center text-green-400 mb-2 border border-green-500/10 shadow-lg"
+                      <button 
+                        onClick={() => {
+                          setUpdateInfo({ version: '...', status: 'idle' });
+                          (window as any).ipcRenderer?.send('check-for-updates');
+                        }}
+                        className="px-8 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-2xl text-[10px] font-black transition-all uppercase tracking-widest border border-white/5 no-drag"
                       >
-                        <RotateCcw className="w-10 h-10" />
-                      </motion.div>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[18px] font-black tracking-tight text-green-400 uppercase tracking-widest">Lista para Instalar</span>
-                        <p className="text-[11px] text-white/50 leading-relaxed font-bold uppercase">La descarga ha finalizado con éxito. <br/>Reinicia para aplicar los cambios.</p>
-                      </div>
+                         Buscar Actualizaciones
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {updateInfo.status === 'idle' && (
+                        <div className="flex flex-col items-center gap-4">
+                          <div className="w-20 h-20 flex items-center justify-center">
+                            <Activity className="w-12 h-12 text-blue-400 animate-pulse" />
+                          </div>
+                          <span className="text-[12px] font-black uppercase tracking-widest text-blue-400/60 animate-bounce">Verificando...</span>
+                        </div>
+                      )}
+
+                      {updateInfo.status === 'available' && (
+                        <>
+                          <div className="w-20 h-20 rounded-[30px] bg-blue-500/20 flex items-center justify-center text-blue-400 mb-2 border border-blue-400/20 shadow-[0_0_30px_rgba(59,130,246,0.2)]">
+                            <Download className="w-10 h-10" />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center justify-center gap-2 mb-1">
+                               <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-[8px] font-black rounded uppercase">Nueva</span>
+                               <span className="text-[18px] font-black tracking-tight tracking-widest uppercase text-white">Versión v{updateInfo.version}</span>
+                            </div>
+                            <p className="text-[11px] text-white/50 leading-relaxed font-bold uppercase max-w-[320px]">Mejoras de rendimiento, optimización de visualizadores y corrección de errores críticos.</p>
+                          </div>
+                          <div className="flex gap-4 w-full mt-2">
+                             <button 
+                                onClick={() => (window as any).ipcRenderer?.send('start-update-download')}
+                                className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] text-[11px] font-black transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95 uppercase tracking-widest no-drag"
+                              >
+                                <Download className="w-4 h-4" /> Descargar Ahora
+                              </button>
+                              <button 
+                                onClick={() => setUpdateInfo(null)}
+                                className="px-8 py-4 bg-white/5 hover:bg-white/10 text-white/40 rounded-[24px] text-[11px] font-black uppercase tracking-widest no-drag"
+                              >
+                                Omitir
+                              </button>
+                          </div>
+                        </>
+                      )}
+                      
+                      {updateInfo.status === 'downloading' && (
+                        <div className="flex flex-col gap-6 w-full items-center px-4">
+                          <div className="relative w-24 h-24">
+                             <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                               <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+                               <motion.circle 
+                                 cx="50" cy="50" r="45" fill="none" stroke="#3b82f6" strokeWidth="8"
+                                 strokeDasharray={2 * Math.PI * 45}
+                                 animate={{ strokeDashoffset: (2 * Math.PI * 45) * (1 - updateProgress / 100) }}
+                                 style={{ filter: 'drop-shadow(0 0 8px #3b82f6)' }}
+                               />
+                             </svg>
+                             <div className="absolute inset-0 flex items-center justify-center flex-col">
+                               <span className="text-[18px] font-black tabular-nums">{Math.round(updateProgress)}%</span>
+                               <span className="text-[7px] font-black uppercase text-blue-400">Loading</span>
+                             </div>
+                          </div>
+                          <div className="flex flex-col gap-2 items-center">
+                            <span className="text-[14px] font-black uppercase tracking-[0.2em] text-blue-500">Recibiendo Paquete...</span>
+                            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Instalador Remoto desde GitHub</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {updateInfo.status === 'ready' && (
+                        <>
+                          <motion.div 
+                            initial={{ scale: 0.9 }}
+                            animate={{ scale: 1 }}
+                            className="w-24 h-24 rounded-[38px] bg-green-500/10 flex items-center justify-center text-green-400 mb-2 border border-green-500/20 shadow-[0_0_40px_rgba(34,197,94,0.2)]"
+                          >
+                            <RotateCcw className="w-12 h-12" />
+                          </motion.div>
+                          <div className="flex flex-col gap-2">
+                            <span className="text-[20px] font-black tracking-tight text-green-400 uppercase tracking-widest">Lista para Instalar</span>
+                            <p className="text-[11px] text-white/50 leading-relaxed font-bold uppercase max-w-[300px]">La descarga ha finalizado. Es necesario reiniciar Notchly para aplicar la nueva versión.</p>
+                          </div>
+                          <button 
+                            onClick={() => (window as any).ipcRenderer?.send('install-update-now')}
+                            className="w-full mt-4 py-5 bg-green-600 hover:bg-green-500 text-white rounded-[28px] text-[12px] font-black transition-all flex items-center justify-center gap-3 shadow-2xl active:scale-95 uppercase tracking-[0.1em] no-drag"
+                          >
+                            <RotateCcw className="w-5 h-5" /> Reiniciar e Instalar Ahora
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
 
-                <div className="flex gap-4 mt-auto mb-2 px-2">
-                  {updateInfo.status === 'available' && (
-                    <button 
-                      onClick={() => (window as any).ipcRenderer?.send('start-update-download')}
-                      className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] text-[11px] font-black transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95 uppercase tracking-widest"
-                    >
-                      <Download className="w-4 h-4" /> Empezar Descarga
-                    </button>
-                  )}
-                  {updateInfo.status === 'ready' && (
-                    <button 
-                      onClick={() => (window as any).ipcRenderer?.send('install-update-now')}
-                      className="flex-1 py-4 bg-green-600 hover:bg-green-500 text-white rounded-[24px] text-[11px] font-black transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95 uppercase tracking-widest"
-                    >
-                      <RotateCcw className="w-4 h-4" /> Reiniciar e Instalar
-                    </button>
-                  )}
-                  <button 
-                    onClick={() => setActiveView('Resumen')}
-                    className="flex-1 py-4 bg-white/5 hover:bg-white/10 text-white/70 rounded-[24px] text-[11px] font-black transition-all uppercase tracking-widest border border-white/5"
-                  >
-                    Después
-                  </button>
+                <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between text-[8px] font-black text-white/20 uppercase tracking-[0.3em]">
+                   <span>Notchly v2 Stable Release</span>
+                   <span className="text-blue-500/40">Secure Update Path</span>
                 </div>
               </motion.div>
             )}
@@ -2024,6 +2154,7 @@ export const DynamicIsland = () => {
               animate={{ opacity: 1,  scale: 1,    y: 0   }}
               exit={{   opacity: 0,  scale: 0.97,  y: -8  }}
               className="absolute inset-0 flex flex-col overflow-hidden pointer-events-auto"
+              onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
               onPointerDown={(e) => e.stopPropagation()}
               style={{
                 background: isLightMode ? 'rgba(252,252,252,0.97)' : 'rgba(8,8,8,0.97)',
@@ -2048,7 +2179,7 @@ export const DynamicIsland = () => {
                 <div className="flex flex-col gap-4 p-8 overflow-y-auto no-scrollbar" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
                   <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.visibility}</span>
                   <div className="flex flex-col gap-2">
-                    {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'WhatsApp', 'YouTube', 'Herramientas'] as const).map(v => (
+                    {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Actualización', 'WhatsApp', 'YouTube', 'Herramientas'] as const).map(v => (
                       <button
                         key={v}
                         onClick={() => toggleTab(v)}
@@ -2233,6 +2364,29 @@ export const DynamicIsland = () => {
                       </div>
                     </button>
                   </div>
+                  
+                  {/* CENTRO DE CONTROL TOGGLE */}
+                  <div className="flex flex-col gap-3">
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Burbujas</span>
+                    <button
+                      onClick={() => {
+                        const next = !showControlsBubble;
+                        setShowControlsBubble(next);
+                        localStorage.setItem('showControlsBubble', JSON.stringify(next));
+                      }}
+                      className="flex items-center justify-between px-4 py-3 rounded-2xl border transition-all font-black text-[11px] uppercase pointer-events-auto"
+                      style={{
+                        background: showControlsBubble ? (isLightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)') : 'transparent',
+                        borderColor: showControlsBubble ? (isLightMode ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)') : (isLightMode ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+                        color: showControlsBubble ? '#60a5fa' : 'inherit',
+                      }}
+                    >
+                      <span>Controlador Emergente</span>
+                      <div className={clsx('w-8 h-4 rounded-full relative transition-all', showControlsBubble ? 'bg-blue-500' : 'bg-zinc-700')}>
+                        <div className={clsx('absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all', showControlsBubble ? (isLightMode ? 'left-4' : 'left-4.5') : 'left-0.5')} />
+                      </div>
+                    </button>
+                  </div>
 
                   <div className="flex flex-col gap-3">
                     <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.theme}</span>
@@ -2249,12 +2403,11 @@ export const DynamicIsland = () => {
                       {isLightMode ? t.dark : t.light}
                     </button>
                   </div>
-
-                  </div>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div 
           className="absolute left-full ml-0 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]"
           onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
