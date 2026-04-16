@@ -99,6 +99,11 @@ ipcMain.on('clear-all-notifications', () => {
 // Remote Update IPC Handlers
 autoUpdater.autoDownload = false; // We want the user to trigger the download
 
+autoUpdater.on('checking-for-update', () => {
+  console.log('[UPDATER] Checking for update...');
+  safeSend(win, 'update-checking');
+});
+
 autoUpdater.on('update-available', (info) => {
   safeSend(win, 'update-available', {
     version: info.version,
@@ -121,11 +126,15 @@ autoUpdater.on('update-not-available', () => {
 
 autoUpdater.on('error', (err) => {
   console.error('[UPDATER_ERROR] ' + err);
-  safeSend(win, 'update-error', err.message);
+  safeSend(win, 'update-error', err.message || String(err));
 });
 
 ipcMain.on('check-for-updates', () => {
-  autoUpdater.checkForUpdates().catch(e => console.error('Check failed: ' + e));
+  console.log('[UPDATER] Manual check requested');
+  autoUpdater.checkForUpdates().catch(e => {
+    console.error('[UPDATER] Check failed: ' + e);
+    safeSend(win, 'update-error', 'Error al buscar actualizaciones.');
+  });
 });
 
 ipcMain.on('start-update-download', () => {
@@ -235,10 +244,20 @@ ipcMain.on('set-weather-location', (_e, loc: string) => {
 });
 
 // ── Global State Sync (v5.3 Stability) ──────────────────────────────────────
-ipcMain.on('set-is-expanded', (_, expanded) => { isExpandedMode = expanded; });
 ipcMain.on('set-is-super-pill', (_, active) => { isSuperPill = active; });
 ipcMain.on('set-is-preview', (_, preview) => { isPreviewMode = preview; });
 ipcMain.on('update-island-pos', (_, x) => { currentIslandX = x; });
+
+let lastAutoCheckTime = 0;
+ipcMain.on('set-is-expanded', (_, expanded) => { 
+  isExpandedMode = expanded; 
+  // Trigger auto-check when expanding if more than 30 mins passed
+  if (expanded && Date.now() - lastAutoCheckTime > 30 * 60 * 1000) {
+    lastAutoCheckTime = Date.now();
+    console.log('[UPDATER] Auto-check triggered on expansion');
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  }
+});
 ipcMain.on('set-window-dimensions', (_, d) => {
   currentWidth = d.w;
   currentHeight = d.h;
@@ -365,6 +384,12 @@ function createWindow() {
   // Re-run weather polling
   fetchWeather();
   weatherInterval = setInterval(fetchWeather, 20 * 60 * 1000);
+
+  // Periodic Update Check (Every 4 hours)
+  setInterval(() => {
+    console.log('[UPDATER] Periodic 4h check');
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  }, 4 * 60 * 60 * 1000);
 }
 
 const singleInstanceLock = app.requestSingleInstanceLock()

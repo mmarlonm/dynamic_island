@@ -386,7 +386,7 @@ export const DynamicIsland = () => {
 
   const [timerTime, setTimerTime]      = useState(0);
   const [currentVersion, setCurrentVersion] = useState('0.0.0');
-  const [updateInfo, setUpdateInfo]    = useState<{version: string, status: 'idle' | 'available' | 'downloading' | 'ready'} | null>(null);
+  const [updateInfo, setUpdateInfo]    = useState<{version: string, status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error', error?: string} | null>(null);
   const [updateProgress, setUpdateProgress] = useState(0);
   const [timerTotal, setTimerTotal]    = useState(0);
   const [timerActive, setTimerActive]  = useState(false);
@@ -714,33 +714,31 @@ export const DynamicIsland = () => {
       });
 
       // Update System Listeners
+      ipc.on('update-checking', () => {
+        setUpdateInfo({ version: '...', status: 'checking' });
+      });
       ipc.on('update-available', (_: any, info: any) => {
         setUpdateInfo({ version: info.version, status: 'available' });
-        // Add a special notification to the tray instead of switching view
         setNotifications(p => [{
-          id: 999999, // Special ID for updates
+          id: 999999,
           app: 'SISTEMA',
           text: `Nueva versión v${info.version} disponible.`
         }, ...p.filter(n => n.id !== 999999)]);
       });
-
       ipc.on('update-progress', (_: any, percent: number) => {
         setUpdateProgress(percent);
         setUpdateInfo(p => p ? { ...p, status: 'downloading' } : null);
       });
-
       ipc.on('update-ready', () => {
-        setUpdateInfo(p => p ? { ...p, status: 'ready' } : null);
+        setUpdateInfo(p => (p && p.status === 'downloading') ? { ...p, status: 'ready' } : p);
       });
-
       ipc.on('update-not-available', () => {
-        setUpdateInfo(p => p && p.status === 'idle' ? null : p); // Only clear if we were checking
-        // We can show a toast or something later
-      });
-
-      ipc.on('update-error', (_: any, err: string) => {
-        console.error('Update error:', err);
         setUpdateInfo(null);
+      });
+      ipc.on('update-error', (_: any, err: string) => {
+        console.error('[UPDATER] Error:', err);
+        setUpdateInfo({ version: '', status: 'error', error: err });
+        setTimeout(() => setUpdateInfo(null), 5000); // Clear error after 5s
       });
       ipc.on('system-update',  (_: any, d: any) => setSystemInfo(d));
       ipc.on('weather-update', (_: any, d: any) => setWeather(d));
@@ -2016,7 +2014,7 @@ export const DynamicIsland = () => {
                       </div>
                       <button 
                         onClick={() => {
-                          setUpdateInfo({ version: '...', status: 'idle' });
+                          setUpdateInfo({ version: '...', status: 'checking' });
                           (window as any).ipcRenderer?.send('check-for-updates');
                         }}
                         className="px-8 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-2xl text-[10px] font-black transition-all uppercase tracking-widest border border-white/5 no-drag"
@@ -2026,12 +2024,30 @@ export const DynamicIsland = () => {
                     </>
                   ) : (
                     <>
-                      {updateInfo.status === 'idle' && (
+                      {(updateInfo.status === 'checking' || updateInfo.status === 'idle') && (
                         <div className="flex flex-col items-center gap-4">
                           <div className="w-20 h-20 flex items-center justify-center">
                             <Activity className="w-12 h-12 text-blue-400 animate-pulse" />
                           </div>
                           <span className="text-[12px] font-black uppercase tracking-widest text-blue-400/60 animate-bounce">Verificando...</span>
+                        </div>
+                      )}
+
+                      {updateInfo.status === 'error' && (
+                        <div className="flex flex-col items-center gap-4 text-center">
+                          <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center">
+                             <Trash2 className="w-10 h-10 text-red-500" />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[14px] font-black text-red-400 uppercase tracking-widest">Error de Conexión</span>
+                            <p className="text-[9px] text-white/30 uppercase font-bold max-w-[300px]">{updateInfo.error || 'No se pudo contactar con el servidor de actualizaciones.'}</p>
+                          </div>
+                          <button 
+                            onClick={() => setUpdateInfo(null)}
+                            className="mt-4 px-6 py-2 bg-white/5 text-[10px] font-black uppercase rounded-xl border border-white/5 no-drag"
+                          >
+                            Reintentar
+                          </button>
                         </div>
                       )}
 
