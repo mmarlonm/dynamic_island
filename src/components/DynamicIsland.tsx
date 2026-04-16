@@ -120,7 +120,7 @@ const SoundVisualizer = ({
         } catch (e) {
           console.warn('[VISUALIZER] Audio capture failed:', e);
           const sim = () => {
-            if (!active) return;
+            if (!active || !isPlaying) return;
             const b = bars.map(() => Math.random() * 12 + 4);
             setBars(b);
             const fakeIntensity = Math.random() * 0.3;
@@ -128,7 +128,7 @@ const SoundVisualizer = ({
             if (onBeat) onBeat(Math.random() > 0.85 ? Math.random() * 0.8 : 0);
             rafRef.current = requestAnimationFrame(sim);
           };
-          sim();
+          if (isPlaying) sim();
         }
       }, 150);
     };
@@ -539,6 +539,10 @@ export const DynamicIsland = () => {
   const isExpanded = isHovered || isPinned || showSettings;
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [lastSelectedCity, setLastSelectedCity] = useState(localStorage.getItem('weatherLocation') || '');
+  const [showControlsBubble, setShowControlsBubble] = useState(JSON.parse(localStorage.getItem('showControlsBubble') || 'true'));
+  const [lastNotifTime, setLastNotifTime] = useState(0);
+  const [recentNotif, setRecentNotif] = useState<any>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   useEffect(() => {
     (window as any).ipcRenderer?.invoke('get-auto-launch').then(setAutoLaunch);
