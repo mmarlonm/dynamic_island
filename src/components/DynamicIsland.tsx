@@ -1019,147 +1019,96 @@ export const DynamicIsland = () => {
         <div className="absolute inset-0 pointer-events-none z-[-1] overflow-visible">
           <svg width="100%" height="100%" shapeRendering="geometricPrecision" style={{ display: 'block', overflow: 'visible' }}>
 
-             <motion.path
-                initial={false}
-                animate={{ d: (() => {
-                  const isLarge = showSettings || isExpanded;
-                  const isPreview = showPreview && activeView === 'Multimedia';
-                  const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440));
-                  const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66);
-                  const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
-                  const totalW = w + 68;
-                  
-                  if (superPill && !isLarge) {
-                    const neck = 42; 
-                    return `M 0 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW} 0 Z`;
-                  } else {
-                    const r = 34;
-                    return `M 0 0 A ${r} ${r} 0 0 1 ${r} ${r} V ${h-r} A ${r} ${r} 0 0 0 ${r*2} ${h} H ${totalW-(r*2)} A ${r} ${r} 0 0 0 ${totalW-r} ${h-r} V ${r} A ${r} ${r} 0 0 1 ${totalW} 0 Z`;
-                  }
-                })() }}
-                fill={isLightMode ? '#fdfdfd' : '#0a0a0a'}
-                stroke={isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.08)'}
-                strokeWidth="0.5"
-                transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-             />
+             {(() => {
+                const isLarge = showSettings || isExpanded;
+                const isPreview = showPreview && activeView === 'Multimedia';
+                const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440));
+                const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66);
+                const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
+                const totalW = w + 68;
+                const neck = 42;
 
-             {/* ── QUANTUM PULSE AURA (Innovative Rhythm System) ── */}
-             <AnimatePresence>
-               {superPill && !isExpanded && media.isPlaying && (() => {
-                 const mi  = musicIntensity || 0;   // sustained energy 0-1
-                 const bp  = beatPulse     || 0;    // transient beat pulse 0-1 (fast decay)
-                 const w = 72;
-                 
-                 // High-Response Rhythmic Geometry
-                 const baseH = 42 + mi * 8;
-                 const defH = baseH + bp * 28;      // Aggressive physical deformation on beat
-                 const totalW = w + 68;
-                 const neck = 42 - bp * 15;         // Neck narrows sharply on beat
-                 
-                 // Dynamic Path Logic
-                 const spineD = `M 4 2 C ${neck} 0, ${neck} ${defH}, ${totalW/2} ${defH + bp*8} S ${totalW-neck} 0, ${totalW-4} 2`;
-                 const auraD  = `M 0 0 C ${neck-4} -4, ${neck-4} ${defH+10}, ${totalW/2} ${defH+16} S ${totalW-neck+4} -4, ${totalW} 0`;
-                 
-                 return (
-                   <g key="quantum-pulse-system">
-                     {/* 1. Volumetric Energy Cloud (Glow Base) */}
-                     <motion.path
-                       d={auraD}
-                       fill="none"
-                       stroke="url(#rgQuantum)"
-                       strokeLinecap="round"
-                       animate={{
-                         strokeWidth: 4 + mi * 25 + bp * 45,
-                         opacity: 0.1 + mi * 0.3 + bp * 0.5,
-                       }}
-                       transition={{ duration: 0.08 }}
-                       style={{ 
-                         filter: `blur(${8 + mi * 20 + bp * 35}px)`, 
-                         mixBlendMode: 'screen',
-                         pointerEvents: 'none'
-                       }}
-                     />
+                // Shared Geometry Logic
+                const islandD = (superPill && !isLarge) 
+                  ? `M 0 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW} 0 Z`
+                  : (() => {
+                      const r = 34;
+                      return `M 0 0 A ${r} ${r} 0 0 1 ${r} ${r} V ${h-r} A ${r} ${r} 0 0 0 ${r*2} ${h} H ${totalW-(r*2)} A ${r} ${r} 0 0 0 ${totalW-r} ${h-r} V ${r} A ${r} ${r} 0 0 1 ${totalW} 0 Z`;
+                    })();
 
-                     {/* 2. Interwoven Harmonic Rims (3 Layers) */}
-                     {[1, 1.05, 1.1].map((scale, i) => (
-                       <motion.path
-                         key={i}
-                         d={spineD}
-                         fill="none"
-                         stroke="url(#rgPulse)"
-                         strokeLinecap="round"
-                         strokeWidth={0.5 + (2-i) * 0.5 + bp * 1.5}
-                         animate={{
-                           opacity: (0.3 - i * 0.1) + mi * 0.4 + bp * 0.6,
-                           scaleX: scale * (1 + bp * 0.05),
-                           scaleY: scale * (1 + bp * 0.08),
-                         }}
-                         transition={{ duration: 0.1 }}
-                         style={{ 
-                           transformOrigin: 'center top', 
-                           filter: i === 0 ? 'none' : 'blur(2px)',
-                           pointerEvents: 'none'
-                         }}
-                       />
-                     ))}
+                return (
 
-                     {/* 3. Spectral Particles (Racing Nodes) */}
-                     {[0.1, 0.3, 0.5, 0.7, 0.9].map((offset, i) => (
-                       <motion.circle
-                         key={`p-${i}`}
-                         r={1.2 + bp * 3.5}
-                         fill="#fff"
-                         animate={{
-                           offsetDistance: [`${offset * 100}%`, `${(offset * 100 + (40 + bp * 60)) % 100}%`],
-                           opacity: [0, 0.9 + bp * 0.1, 0],
-                         }}
-                         transition={{
-                           duration: 1.2 / (1 + bp * 2), // High acceleration on beat
-                           repeat: Infinity,
-                           ease: "linear"
-                         }}
-                         style={{
-                           offsetPath: `path("${spineD}")`,
-                           filter: 'drop-shadow(0 0 5px #fff) drop-shadow(0 0 10px #3b82f6)',
-                           pointerEvents: 'none'
-                         }}
-                       />
-                     ))}
+                  <>
+                    <motion.path
+                      initial={false}
+                      animate={{ d: islandD }}
+                      fill={isLightMode ? '#fdfdfd' : '#0a0a0a'}
+                      stroke={isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.08)'}
+                      strokeWidth="0.5"
+                      transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+                    />
 
-                     {/* 4. Peak Digital Spark (Top Center) */}
-                     {bp > 0.2 && (
-                       <motion.g
-                         initial={{ opacity: 0, scale: 0 }}
-                         animate={{ opacity: 1, scale: 1.2 + bp * 0.5 }}
-                         exit={{ opacity: 0, scale: 2 }}
-                         className="origin-center"
-                         style={{ x: totalW / 2, y: defH + bp * 4 }}
-                       >
-                         <motion.circle r={2 + bp * 12} fill="white" style={{ filter: 'blur(4px)' }} />
-                         <motion.circle r={1 + bp * 6} fill="white" />
-                         <motion.rect x={-0.5} y={-20} width={1} height={40} fill="white" opacity={0.6} />
-                         <motion.rect x={-20} y={-0.5} width={40} height={1} fill="white" opacity={0.6} />
-                       </motion.g>
-                     )}
+                    {/* ── QUANTUM PULSE AURA (Innovative Rhythm System) ── */}
+                    <AnimatePresence>
+                      {superPill && !isLarge && media.isPlaying && (() => {
+                        const mi = musicIntensity || 0;
+                        const bp = beatPulse || 0;
+                        const defH = h + bp * 24; // React relative to body height
+                        const spineD = `M 0 0 C ${neck} 0, ${neck} ${defH}, ${totalW/2} ${defH + bp*6} S ${totalW-neck} 0, ${totalW} 0`;
+                        const auraD  = `M 0 0 C ${neck-2} -2, ${neck-2} ${defH+8}, ${totalW/2} ${defH+14} S ${totalW-neck+2} -2, ${totalW} 0`;
 
-                     {/* 5. Chromatic Aberration Flare */}
-                     <motion.path
-                       d={spineD}
-                       fill="none"
-                       stroke="#ff00ff"
-                       strokeWidth={0.4}
-                       animate={{ 
-                         opacity: bp * 0.8, 
-                         x: [-2, 2, -2],
-                         y: [0, 1, 0]
-                       }}
-                       transition={{ duration: 0.04, repeat: Infinity }}
-                       style={{ mixBlendMode: 'screen', filter: 'blur(1.5px)', pointerEvents: 'none' }}
-                     />
-                   </g>
-                 );
-               })()}
-             </AnimatePresence>
+                        return (
+                          <g key="quantum-pulse-system">
+                            <motion.path
+                              d={auraD}
+                              fill="none"
+                              stroke="url(#rgQuantum)"
+                              strokeLinecap="round"
+                              animate={{
+                                strokeWidth: 2 + mi * 20 + bp * 40,
+                                opacity: 0.1 + mi * 0.3 + bp * 0.5,
+                              }}
+                              transition={{ type: 'spring', stiffness: 800, damping: 35 }}
+                              style={{ filter: `blur(${6 + mi * 15 + bp * 30}px)`, mixBlendMode: 'screen', pointerEvents: 'none' }}
+                            />
+                            {[1, 1.04, 1.08].map((scale, i) => (
+                              <motion.path
+                                key={i}
+                                d={spineD}
+                                fill="none"
+                                stroke="url(#rgPulse)"
+                                strokeLinecap="round"
+                                strokeWidth={0.5 + bp * 2}
+                                animate={{
+                                  opacity: (0.4 - i * 0.1) + mi * 0.4 + bp * 0.6,
+                                  scaleX: scale,
+                                  scaleY: scale,
+                                }}
+                                transition={{ type: 'spring', stiffness: 800, damping: 40 }}
+                                style={{ transformOrigin: 'center top', filter: i === 0 ? 'none' : 'blur(2px)', pointerEvents: 'none' }}
+                              />
+                            ))}
+                            {[0.2, 0.5, 0.8].map((offset, i) => (
+                              <motion.circle
+                                key={`p-${i}`}
+                                r={1 + bp * 3}
+                                fill="#fff"
+                                animate={{
+                                  offsetDistance: [`${offset * 100}%`, `${(offset * 100 + (30 + bp * 50)) % 100}%`],
+                                  opacity: [0, 0.9, 0],
+                                }}
+                                transition={{ duration: 1.0 / (1 + bp * 2), repeat: Infinity, ease: "linear" }}
+                                style={{ offsetPath: `path("${spineD}")`, filter: 'drop-shadow(0 0 4px #fff)', pointerEvents: 'none' }}
+                              />
+                            ))}
+                          </g>
+                        );
+                      })()}
+                    </AnimatePresence>
+                  </>
+                );
+              })()}
+
 
               <defs>
                 <linearGradient id="rgQuantum" x1="0%" y1="0%" x2="100%" y2="0%">
