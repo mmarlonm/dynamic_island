@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence, useDragControls, useMotionValue } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls, useMotionValue, Reorder } from 'framer-motion';
 import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
   EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
-  ChevronLeft, ChevronRight, Download, MessageCircle, Wifi, WifiOff, Bluetooth, LayoutGrid
+  ChevronLeft, ChevronRight, Download, MessageCircle, Wifi, WifiOff, Bluetooth, LayoutGrid, GripVertical
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -415,6 +415,11 @@ export const DynamicIsland = () => {
   const [showControlsBubble, setShowControlsBubble] = useState(JSON.parse(localStorage.getItem('showControlsBubble') || 'true'));
   const [recentNotif, setRecentNotif] = useState<any>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [showAura, setShowAura] = useState(() => JSON.parse(localStorage.getItem('showAura') || 'true'));
+  const [tabOrder, setTabOrder] = useState<any[]>(() => {
+    const saved = localStorage.getItem('tabOrder');
+    return saved ? JSON.parse(saved) : ['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'Actualización', 'WhatsApp', 'YouTube', 'Sistema', 'Llamada'];
+  });
 
   // ── CENTRALIZED AUDIO CAPTURE ENGINE (v1.0 Sync) ──────────────────────────
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -904,6 +909,10 @@ export const DynamicIsland = () => {
   };
   const openApp   = (app: string) => (window as any).ipcRenderer?.invoke('open-app', app);
   const toggleTab = (tab: string) => setVisibleTabs(p => p.includes(tab) ? p.filter(x => x !== tab) : [...p, tab]);
+  const handleReorder = (newOrder: any[]) => {
+    setTabOrder(newOrder);
+    localStorage.setItem('tabOrder', JSON.stringify(newOrder));
+  };
   const fmtTime   = (s: number) => {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
@@ -1050,7 +1059,7 @@ export const DynamicIsland = () => {
 
                     {/* ── QUANTUM PULSE AURA (Innovative Rhythm System) ── */}
                     <AnimatePresence>
-                      {superPill && !isLarge && media.isPlaying && (() => {
+                      {superPill && !isLarge && media.isPlaying && showAura && (() => {
                         const mi = musicIntensity || 0;
                         const bp = beatPulse || 0;
                         const defH = h + bp * 24; // React relative to body height
@@ -1308,11 +1317,11 @@ export const DynamicIsland = () => {
                 }
               }}
             >
-              {(['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'Actualización', 'WhatsApp', 'YouTube', 'Sistema', 'Llamada'] as const).map(v =>
+              {tabOrder.map(v =>
                 visibleTabs.includes(v) && (
                   <button
                     key={v}
-                    onClick={() => setActiveView(v)}
+                    onClick={() => setActiveView(v as any)}
                     className={clsx(
                       'px-3 py-1 rounded-full text-[9.5px] font-black flex items-center gap-1 transition-all uppercase whitespace-nowrap shrink-0',
                       activeView === v
@@ -2126,23 +2135,37 @@ export const DynamicIsland = () => {
 
                 {/* Col 1: Tabs visibility */}
                 <div className="flex flex-col gap-4 p-8 overflow-y-auto no-scrollbar" style={{ borderRight: `1px solid ${isLightMode ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)'}` }}>
-                  <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.visibility}</span>
-                  <div className="flex flex-col gap-2">
-                    {(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Actualización', 'WhatsApp', 'YouTube', 'Herramientas'] as const).map(v => (
-                      <button
-                        key={v}
-                        onClick={() => toggleTab(v)}
-                        className="flex items-center justify-between px-4 py-3 rounded-2xl border transition-all font-black text-[11px] uppercase"
-                        style={{
-                          background: visibleTabs.includes(v) ? (isLightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)') : 'transparent',
-                          borderColor: visibleTabs.includes(v) ? (isLightMode ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)') : 'transparent',
-                          opacity: visibleTabs.includes(v) ? 1 : 0.3,
-                        }}
-                      >
-                        <span>{v}</span>
-                        {visibleTabs.includes(v) ? <Eye className="w-3.5 h-3.5 text-blue-400" /> : <EyeOff className="w-3.5 h-3.5" />}
-                      </button>
-                    ))}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.visibility}</span>
+                    <span className="text-[8px] font-bold text-white/20 uppercase">Ordenable</span>
+                  </div>
+                  <div className="flex flex-col gap-2 pb-10">
+                    <Reorder.Group axis="y" values={tabOrder} onReorder={handleReorder} className="flex flex-col gap-2">
+                      {tabOrder.map((v) => (
+                        <Reorder.Item 
+                          key={v} 
+                          value={v}
+                          className="group relative flex items-center gap-2 outline-none"
+                        >
+                          <div className="shrink-0 w-6 h-10 flex items-center justify-center opacity-0 group-hover:opacity-20 cursor-grab active:cursor-grabbing transition-opacity">
+                            <GripVertical className="w-4 h-4" />
+                          </div>
+                          
+                          <button
+                            onClick={() => toggleTab(v)}
+                            className="flex-1 flex items-center justify-between px-4 py-3 rounded-2xl border transition-all font-black text-[11px] uppercase pointer-events-auto"
+                            style={{
+                              background: visibleTabs.includes(v) ? (isLightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)') : 'transparent',
+                              borderColor: visibleTabs.includes(v) ? (isLightMode ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)') : (isLightMode ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+                              opacity: visibleTabs.includes(v) ? 1 : 0.4,
+                            }}
+                          >
+                            <span>{v}</span>
+                            {visibleTabs.includes(v) ? <Eye className="w-3.5 h-3.5 text-blue-400" /> : <EyeOff className="w-3.5 h-3.5" />}
+                          </button>
+                        </Reorder.Item>
+                      ))}
+                    </Reorder.Group>
                   </div>
                 </div>
 
@@ -2310,6 +2333,29 @@ export const DynamicIsland = () => {
                       <span>{t.autoLaunch}</span>
                       <div className={clsx('w-8 h-4 rounded-full relative transition-all', autoLaunch ? 'bg-blue-500' : 'bg-zinc-700')}>
                         <div className={clsx('absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all', autoLaunch ? (isLightMode ? 'left-4' : 'left-4.5') : 'left-0.5')} />
+                      </div>
+                    </button>
+                  </div>
+                  
+                  {/* EFECTOS VISUALES */}
+                  <div className="flex flex-col gap-3 mt-2">
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Efectos Visuales</span>
+                    <button
+                      onClick={() => {
+                        const next = !showAura;
+                        setShowAura(next);
+                        localStorage.setItem('showAura', JSON.stringify(next));
+                      }}
+                      className="flex items-center justify-between px-4 py-3 rounded-2xl border transition-all font-black text-[11px] uppercase pointer-events-auto"
+                      style={{
+                        background: showAura ? (isLightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)') : 'transparent',
+                        borderColor: showAura ? (isLightMode ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)') : (isLightMode ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+                        color: showAura ? '#60a5fa' : 'inherit',
+                      }}
+                    >
+                      <span>Rhythm Contour (Glow)</span>
+                      <div className={clsx('w-8 h-4 rounded-full relative transition-all', showAura ? 'bg-blue-500' : 'bg-zinc-700')}>
+                        <div className={clsx('absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all', showAura ? (isLightMode ? 'left-4' : 'left-4.5') : 'left-0.5')} />
                       </div>
                     </button>
                   </div>
