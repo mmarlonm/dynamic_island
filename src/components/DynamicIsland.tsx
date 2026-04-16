@@ -402,6 +402,7 @@ export const DynamicIsland = () => {
   const [superPillMode, setSuperPillMode] = useState<'Auto' | 'Multimedia' | 'Clima'>('Auto');
   const [calendarOffset, setCalendarOffset] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
+  const [visitedViews, setVisitedViews] = useState<Set<string>>(new Set(['Resumen']));
   const [stream, setStream] = useState<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [weatherCity, setWeatherCity] = useState(localStorage.getItem('weatherLocation') || '');
@@ -820,6 +821,15 @@ export const DynamicIsland = () => {
   useEffect(() => {
     if (!isHovered && !isPinned && showSettings) setShowSettings(false);
     
+    if (isExpanded && activeView) {
+      setVisitedViews(prev => {
+        if (prev.has(activeView)) return prev;
+        const next = new Set(prev);
+        next.add(activeView);
+        return next;
+      });
+    }
+
     // If we transition from expanded to collapsed, set a "collapsing" flag
     if (!isExpanded) {
       setIsCollapsing(true);
@@ -835,7 +845,7 @@ export const DynamicIsland = () => {
       const timer = setTimeout(() => setIsTransitioning(false), 400); 
       return () => clearTimeout(timer);
     }
-  }, [isHovered, isPinned, showSettings, isExpanded]);
+  }, [isHovered, isPinned, showSettings, isExpanded, activeView]);
 
   // Sync weather location to localStorage
   useEffect(() => {
@@ -1022,7 +1032,7 @@ export const DynamicIsland = () => {
             width: (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
             height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : (activeView === 'Sistema' ? 300 : 180)) : (superPill ? 42 : 66),
           }}
-          transition={{ type: 'spring', stiffness: 350, damping: 35, mass: 0.8 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
         >
         {/* UNIFIED BACKGROUND SVG LAYER — Production Fix & Subtle Drop */}
         <div className="absolute inset-0 pointer-events-none z-[-1] overflow-visible">
@@ -1054,7 +1064,7 @@ export const DynamicIsland = () => {
                       fill={isLightMode ? '#fdfdfd' : '#0a0a0a'}
                       stroke={isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.08)'}
                       strokeWidth="0.5"
-                      transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
                     />
 
                     {/* ── QUANTUM PULSE AURA (Innovative Rhythm System) ── */}
@@ -1074,11 +1084,11 @@ export const DynamicIsland = () => {
                               stroke="url(#rgQuantum)"
                               strokeLinecap="round"
                               animate={{
-                                strokeWidth: 2 + mi * 20 + bp * 40,
+                                strokeWidth: 1.5 + mi * 10 + bp * 15,
                                 opacity: 0.1 + mi * 0.3 + bp * 0.5,
                               }}
                               transition={{ type: 'spring', stiffness: 800, damping: 35 }}
-                              style={{ filter: `blur(${6 + mi * 15 + bp * 30}px)`, mixBlendMode: 'screen', pointerEvents: 'none' }}
+                              style={{ filter: `blur(${4 + mi * 8 + bp * 12}px)`, mixBlendMode: 'screen', pointerEvents: 'none' }}
                             />
                             {[1, 1.04, 1.08].map((scale, i) => (
                               <motion.path
@@ -1874,15 +1884,20 @@ export const DynamicIsland = () => {
               onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
             >
               <div className={clsx("flex-1 rounded-[34px] overflow-hidden border border-white/5 bg-black relative flex flex-col transition-opacity", isTransitioning && "opacity-20 pointer-events-none")}>
-                {(window as any).ipcRenderer && (
+                {(window as any).ipcRenderer && visitedViews.has('WhatsApp') && (
                   <webview
                     ref={whatsappWebviewRef}
                     src="https://web.whatsapp.com"
-                    className="flex-1 w-full"
+                    className={clsx("flex-1 w-full", activeView !== 'WhatsApp' && "invisible absolute")}
                     useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
                     style={{ width: '100%', height: 'calc(100% + 50px)', marginTop: '-50px' }}
                     partition="persist:whatsapp"
                   />
+                )}
+                {activeView !== 'WhatsApp' && visitedViews.has('WhatsApp') && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md">
+                     <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.5em]">En Suspensión</span>
+                  </div>
                 )}
                 {/* Overlay */}
                 <div className="absolute top-0 right-0 p-4 pointer-events-none">
@@ -1940,15 +1955,20 @@ export const DynamicIsland = () => {
                 </div>
 
                 {/* Webview — full remaining height so YouTube's native header+search are fully visible */}
-                {(window as any).ipcRenderer && (
+                {(window as any).ipcRenderer && visitedViews.has('YouTube') && (
                   <webview
                     ref={youtubeWebviewRef}
                     src="https://www.youtube.com"
-                    className="w-full flex-1"
+                    className={clsx("w-full flex-1", activeView !== 'YouTube' && "invisible absolute")}
                     useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
                     style={{ width: '100%', height: 'calc(100% - 33px)' }}
                     partition="persist:youtube"
                   />
+                )}
+                {activeView !== 'YouTube' && visitedViews.has('YouTube') && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md">
+                     <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.5em]">En Suspensión</span>
+                  </div>
                 )}
 
                 {/* Status badge */}

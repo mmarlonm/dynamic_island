@@ -492,11 +492,11 @@ const pollNetworkStatus = async () => {
         });
       }
       if (networkInterval) clearTimeout(networkInterval);
-      networkInterval = setTimeout(pollNetworkStatus, 4000) as unknown as NodeJS.Timeout;
+      networkInterval = setTimeout(pollNetworkStatus, 6000) as unknown as NodeJS.Timeout;
     });
   } catch (e) {
     if (networkInterval) clearTimeout(networkInterval);
-    networkInterval = setTimeout(pollNetworkStatus, 4000) as unknown as NodeJS.Timeout;
+    networkInterval = setTimeout(pollNetworkStatus, 6000) as unknown as NodeJS.Timeout;
   }
 };
 
@@ -543,7 +543,7 @@ const pollVol = async () => {
     const v = await getVol();
     if (v >= 0) safeSend(win, 'volume-update', v);
   } catch (e) {}
-  volInterval = setTimeout(pollVol, 1500); 
+  volInterval = setTimeout(pollVol, 2000); 
 };
 
 let mediaProc: any = null;
