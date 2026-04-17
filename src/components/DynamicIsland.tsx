@@ -501,7 +501,12 @@ export const DynamicIsland = () => {
   const [showAura, setShowAura] = useState(() => JSON.parse(localStorage.getItem('showAura') || 'true'));
   const [tabOrder, setTabOrder] = useState<any[]>(() => {
     const saved = localStorage.getItem('tabOrder');
-    return saved ? JSON.parse(saved) : ['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'Actualización', 'WhatsApp', 'YouTube', 'Sistema', 'Llamada'];
+    let order = saved ? JSON.parse(saved) : ['Resumen', 'Multimedia', 'Herramientas', 'Notificación', 'Actualización', 'WhatsApp', 'YouTube', 'Sistema', 'Llamada', 'Tienda'];
+    if (saved && !order.includes('Tienda')) {
+      order.push('Tienda');
+      localStorage.setItem('tabOrder', JSON.stringify(order));
+    }
+    return order;
   });
 
   // ── CENTRALIZED AUDIO CAPTURE ENGINE (v1.0 Sync) ──────────────────────────
