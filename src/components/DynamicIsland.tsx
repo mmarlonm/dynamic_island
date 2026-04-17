@@ -914,14 +914,25 @@ export const DynamicIsland = () => {
   };
   const resetTimer = () => { setTimerActive(false); setTimerTime(0); setTimerTotal(0); };
 
-  // Timer tick
+  // Window and State synchronization
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     const isLarge = isHovered || isPinned || showSettings;
     const totalW = (showSettings ? 720 : isLarge ? (activeView === 'Multimedia' && showPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68;
-    const totalH = showSettings ? 480 : isLarge ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : 180) : (superPill ? 42 : 66);
     
-    ipc?.send('set-window-dimensions', { w: totalW, h: totalH });
+    // Height mapping for different views to prevent click-through issues
+    let h_target = 180;
+    if (showSettings) h_target = 480;
+    else if (isLarge) {
+      if (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView)) h_target = 600;
+      else if (activeView === 'Actualización') h_target = 450;
+      else if (activeView === 'Sistema') h_target = 300;
+      else h_target = 180;
+    } else {
+      h_target = superPill ? 42 : 66;
+    }
+    
+    ipc?.send('set-window-dimensions', { w: totalW, h: h_target });
     ipc?.send('set-is-expanded', isExpanded);
     ipc?.send('set-is-super-pill', superPill && !isExpanded);
     ipc?.send('set-bubbles-state', { 
@@ -1118,11 +1129,11 @@ export const DynamicIsland = () => {
                               stroke="url(#rgQuantum)"
                               strokeLinecap="round"
                               animate={{
-                                strokeWidth: 1.5 + mi * 3.5 + bp * 5,
-                                opacity: 0.1 + mi * 0.1 + bp * 0.2,
+                                strokeWidth: 1.5 + mi * 1.8 + bp * 2.5,
+                                opacity: 0.1 + mi * 0.05 + bp * 0.1,
                               }}
                               transition={{ type: 'spring', stiffness: 800, damping: 35 }}
-                              style={{ filter: `blur(${2.5 + mi * 3 + bp * 5}px)`, mixBlendMode: 'screen', pointerEvents: 'none' }}
+                              style={{ filter: `blur(${1.5 + mi * 1.5 + bp * 2.5}px)`, mixBlendMode: 'screen', pointerEvents: 'none' }}
                             />
                             {[1, 1.04, 1.08].map((scale, i) => (
                               <motion.path
@@ -1386,7 +1397,11 @@ export const DynamicIsland = () => {
                         <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
                       </svg>
                     )}
-                    {t[v === 'Notificación' ? 'notificacion' : (v === 'WhatsApp' ? 'whatsapp' : (v === 'YouTube' ? 'youtube' : (v === 'Herramientas' ? 'timer' : (v === 'Actualización' ? 'update' : v.toLowerCase()))))] || v}
+                    {(() => {
+                      const keyMap: any = { 'Notificación': 'notificacion', 'WhatsApp': 'whatsapp', 'YouTube': 'youtube', 'Herramientas': 'timer', 'Actualización': 'update' };
+                      const key = keyMap[v] || v.toLowerCase();
+                      return t[key] || v;
+                    })()}
                   </button>
                 )
               )}
@@ -2251,7 +2266,11 @@ export const DynamicIsland = () => {
                               opacity: visibleTabs.includes(v) ? 1 : 0.4,
                             }}
                           >
-                            <span>{v}</span>
+                            <span>{(() => {
+                              const keyMap: any = { 'Notificación': 'notificacion', 'WhatsApp': 'whatsapp', 'YouTube': 'youtube', 'Herramientas': 'timer', 'Actualización': 'update' };
+                              const key = keyMap[v] || v.toLowerCase();
+                              return t[key] || v;
+                            })()}</span>
                             {visibleTabs.includes(v) ? <Eye className="w-3.5 h-3.5 text-blue-400" /> : <EyeOff className="w-3.5 h-3.5" />}
                           </button>
                         </Reorder.Item>
@@ -2277,7 +2296,7 @@ export const DynamicIsland = () => {
                           boxShadow: summaryTemplate === k ? '0 0 20px rgba(59,130,246,0.15)' : 'none',
                         }}
                       >
-                        {k}
+                        {t[k.toLowerCase()] || k}
                       </button>
                     ))}
                   </div>
