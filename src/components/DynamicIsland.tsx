@@ -4,7 +4,8 @@ import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
   EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
-  ChevronLeft, ChevronRight, Download, MessageCircle, Wifi, WifiOff, Bluetooth, LayoutGrid, GripVertical, CheckCircle2
+  ChevronLeft, ChevronRight, Download, MessageCircle, Wifi, WifiOff, Bluetooth, LayoutGrid, GripVertical, CheckCircle2,
+  ShoppingBag, Zap
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -358,15 +359,91 @@ const UnifiedCircularTimer = ({
     </div>
   );
 };
+// ── Style Store Component (Tienda) ──────────────────────────────────────────
+const TiendaView = ({ t, templates, auras, currentT, currentA, onApplyT, onApplyA }: any) => {
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden no-drag">
+      <div className="relative h-24 shrink-0 rounded-[28px] overflow-hidden mb-4 group shadow-2xl">
+        <img 
+          src="file:///C:/Users/chiva/.gemini/antigravity/brain/eb88c411-c6cd-4f1f-8f46-6a5391ef8bf5/store_banner_1776452850851.png" 
+          className="w-full h-full object-cover" 
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent flex flex-col justify-center px-6">
+          <h2 className="text-lg font-black uppercase tracking-tighter text-white drop-shadow-md">{t.tienda}</h2>
+          <p className="text-[9px] font-bold text-white/60 uppercase tracking-widest">{t.tiendaDesc}</p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-6 pb-4">
+        {/* Templates Section */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <LayoutGrid className="w-3 h-3 text-blue-400" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">{t.caratulas}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {templates.map((tmpl: any) => (
+              <div 
+                key={tmpl.id} 
+                className={clsx("p-3 rounded-[24px] border transition-all pointer-events-auto cursor-default", 
+                  currentT === tmpl.id ? "border-blue-500/50 bg-blue-500/10 shadow-[0_0_15px_rgba(59,130,246,0.1)]" : "border-white/5 bg-white/5 hover:border-white/10"
+                )}
+              >
+                <div className="aspect-[4/3] rounded-xl bg-zinc-950/50 mb-2 flex items-center justify-center overflow-hidden border border-white/5">
+                   {tmpl.preview}
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[9px] font-black uppercase tracking-tighter opacity-80">{tmpl.name}</span>
+                  <span className="text-[7px] font-bold text-emerald-400 uppercase">{t.gratis}</span>
+                </div>
+                <button 
+                  onClick={() => onApplyT(tmpl.id)}
+                  className={clsx("w-full mt-2 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all",
+                    currentT === tmpl.id ? "bg-blue-500 text-white" : "bg-white/5 hover:bg-white/10 text-white/40 hover:text-white"
+                  )}
+                >
+                  {currentT === tmpl.id ? 'Active' : t.aplicar}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Auras Section */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Zap className="w-3 h-3 text-emerald-400" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">{t.contornos}</span>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {auras.map((aura: any) => (
+              <button 
+                key={aura.id} 
+                onClick={() => onApplyA(aura.color)}
+                className={clsx("p-2 rounded-2xl border transition-all flex flex-col items-center gap-2 pointer-events-auto",
+                   currentA === aura.color ? "border-emerald-500/50 bg-emerald-500/5" : "border-white/5 bg-white/5 hover:border-white/10"
+                )}
+              >
+                <div className="w-8 h-8 rounded-full shadow-lg" style={{ background: `linear-gradient(45deg, ${aura.color}, transparent)`, border: `2px solid ${aura.color}` }} />
+                <span className="text-[7px] font-black uppercase opacity-60 text-center whitespace-nowrap">{aura.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const DynamicIsland = () => {
   const [isHovered, setIsHovered]     = useState(false);
   const [isPinned, setIsPinned]       = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada' | 'Actualización' | 'WhatsApp' | 'YouTube'>('Resumen');
+  const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada' | 'Actualización' | 'WhatsApp' | 'YouTube' | 'Tienda'>('Resumen');
   const [lang, setLang]               = useState<'es' | 'en' | 'zh'>('es');
   const [isLightMode, setIsLightMode] = useState(false);
   const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>('Moderno');
-  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas', 'WhatsApp', 'YouTube', 'Actualización']);
+  const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas', 'WhatsApp', 'YouTube', 'Actualización', 'Tienda']);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '', id: '' });
   const [notifications, setNotifications] = useState<Array<{ id: number; app: string; text: string }>>([]);
@@ -403,6 +480,7 @@ export const DynamicIsland = () => {
   const [superPill, setSuperPill] = useState(false);
   const [superPillMode, setSuperPillMode] = useState<'Auto' | 'Multimedia' | 'Clima'>('Auto');
   const [calendarOffset, setCalendarOffset] = useState(0);
+  const [auraColor, setAuraColor] = useState(() => localStorage.getItem('auraColor') || '#3b82f6');
   const [showPreview, setShowPreview] = useState(false);
   const [visitedViews, setVisitedViews] = useState<Set<string>>(new Set(['Resumen']));
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -1000,6 +1078,20 @@ yv.removeEventListener('console-message', handleConsoleMessage);
   const showTimerBubble = timerTime > 0 && !isExpanded;
   const showNotifBubble = notifications.length > 0 && !isExpanded;
 
+  const storeTemplates = [
+    { id: 'Moderno', name: 'Original', preview: <div className="w-10 h-3 bg-blue-500/20 rounded-full border border-blue-500/40" /> },
+    { id: 'Mínimo', name: 'Minimalist', preview: <div className="flex gap-1"><div className="w-3 h-3 rounded-full bg-white/20" /><div className="w-6 h-3 bg-white/10 rounded-lg" /></div> },
+    { id: 'Clásico', name: 'Classic', preview: <div className="w-12 h-2 bg-white/5 rounded border border-white/10" /> },
+  ];
+
+  const storeAuras = [
+    { id: 'blue', name: 'Electric Blue', color: '#3b82f6' },
+    { id: 'red', name: 'Blood Red', color: '#ef4444' },
+    { id: 'green', name: 'Toxic Green', color: '#22c55e' },
+    { id: 'purple', name: 'Violet Fusion', color: '#a855f7' },
+    { id: 'gold', name: 'Golden Sun', color: '#fbbf24' },
+  ];
+
   return (
     <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999] px-[50px] pb-[50px]">
       <div className="relative flex items-start justify-center">
@@ -1185,23 +1277,23 @@ yv.removeEventListener('console-message', handleConsoleMessage);
 
               <defs>
                 <linearGradient id="rgQuantum" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#06b6d4" />
-                  <stop offset="30%" stopColor="#c084fc" />
-                  <stop offset="70%" stopColor="#4f46e5" />
-                  <stop offset="100%" stopColor="#06b6d4" />
+                  <stop offset="0%" stopColor={auraColor} />
+                  <stop offset="30%" stopColor={auraColor} stopOpacity="0.8" />
+                  <stop offset="70%" stopColor={auraColor} stopOpacity="0.5" />
+                  <stop offset="100%" stopColor={auraColor} />
                   <animate attributeName="x1" values="0%;-100%;0%" dur="3s" repeatCount="indefinite" />
                   <animate attributeName="x2" values="100%;200%;100%" dur="3s" repeatCount="indefinite" />
                 </linearGradient>
                 <linearGradient id="rgPulse" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#38bdf8" />
+                  <stop offset="0%" stopColor={auraColor} />
                   <stop offset="50%" stopColor="#ffffff" />
-                  <stop offset="100%" stopColor="#38bdf8" />
+                  <stop offset="100%" stopColor={auraColor} />
                   <animate attributeName="x1" values="-50%;150%;-50%" dur="1.2s" repeatCount="indefinite" />
                   <animate attributeName="x2" values="0%;200%;0%" dur="1.2s" repeatCount="indefinite" />
                 </linearGradient>
                 <radialGradient id="rgSpark">
                   <stop offset="10%" stopColor="white" />
-                  <stop offset="90%" stopColor="#3b82f6" stopOpacity="0" />
+                  <stop offset="90%" stopColor={auraColor} stopOpacity="0" />
                 </radialGradient>
               </defs>
            </svg>
@@ -1401,13 +1493,14 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                     {v === 'Llamada'      && <Video      className="w-2.5 h-2.5" />}
                     {v === 'WhatsApp'     && <MessageCircle className="w-2.5 h-2.5" />}
                     {v === 'Actualización' && <Download className="w-2.5 h-2.5" />}
+                    {v === 'Tienda'        && <ShoppingBag className="w-2.5 h-2.5" />}
                     {v === 'YouTube'      && (
                       <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
                       </svg>
                     )}
                     {(() => {
-                      const keyMap: any = { 'Notificación': 'notificacion', 'WhatsApp': 'whatsapp', 'YouTube': 'youtube', 'Herramientas': 'timer', 'Actualización': 'update' };
+                      const keyMap: any = { 'Notificación': 'notificacion', 'WhatsApp': 'whatsapp', 'YouTube': 'youtube', 'Herramientas': 'timer', 'Actualización': 'update', 'Tienda': 'tienda' };
                       const key = keyMap[v] || v.toLowerCase();
                       return t[key] || v;
                     })()}
@@ -2053,6 +2146,24 @@ yv.removeEventListener('console-message', handleConsoleMessage);
               </div>
             </div>
 
+            {activeView === 'Tienda' && (
+              <div className="absolute inset-0 flex flex-col p-4 pointer-events-auto" onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}>
+                <TiendaView 
+                  t={t}
+                  templates={storeTemplates}
+                  auras={storeAuras}
+                  currentT={summaryTemplate}
+                  currentA={auraColor}
+                  onApplyT={setSummaryTemplate}
+                  onApplyA={(color: string) => {
+                    setAuraColor(color);
+                    localStorage.setItem('auraColor', color);
+                  }}
+                  isLightMode={isLightMode}
+                />
+              </div>
+            )}
+
             {activeView === 'Actualización' && (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }} 
@@ -2305,7 +2416,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                             }}
                           >
                             <span>{(() => {
-                              const keyMap: any = { 'Notificación': 'notificacion', 'WhatsApp': 'whatsapp', 'YouTube': 'youtube', 'Herramientas': 'timer', 'Actualización': 'update' };
+                              const keyMap: any = { 'Notificación': 'notificacion', 'WhatsApp': 'whatsapp', 'YouTube': 'youtube', 'Herramientas': 'timer', 'Actualización': 'update', 'Tienda': 'tienda' };
                               const key = keyMap[v] || v.toLowerCase();
                               return t[key] || v;
                             })()}</span>

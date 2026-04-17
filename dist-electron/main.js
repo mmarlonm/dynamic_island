@@ -9182,7 +9182,7 @@ X.on("start-update-download", () => {
   console.log("[UPDATER] Starting download..."), je.autoUpdater.downloadUpdate().then(() => {
     console.log("[UPDATER] Download process started");
   }).catch((e) => {
-    console.error("[UPDATER] Download failed: " + e), we(H, "update-error", "Error al descargar la actualización.");
+    console.error("[UPDATER] Download failed: " + e), we(H, "update-error", "Error al descargar: " + (e.message || String(e)));
   });
 });
 X.on("install-update-now", () => {

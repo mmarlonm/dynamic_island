@@ -182,13 +182,13 @@ ipcMain.on('check-for-updates', () => {
   });
 });
 
-ipcMain.on('start-update-download', () => {
+  ipcMain.on('start-update-download', () => {
   console.log('[UPDATER] Starting download...');
   autoUpdater.downloadUpdate().then(() => {
     console.log('[UPDATER] Download process started');
   }).catch(e => {
     console.error('[UPDATER] Download failed: ' + e);
-    safeSend(win, 'update-error', 'Error al descargar la actualización.');
+    safeSend(win, 'update-error', 'Error al descargar: ' + (e.message || String(e)));
   });
 });
 
