@@ -389,6 +389,8 @@ export const DynamicIsland = () => {
   const [updateInfo, setUpdateInfo]    = useState<{version: string, status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'no-update', error?: string} | null>(null);
   const [updateProgress, setUpdateProgress] = useState(0);
   const [timerTotal, setTimerTotal]    = useState(0);
+  const [events, setEvents] = useState<any[]>([]);
+  const [notifStatus, setNotifStatus] = useState<string>('Pending...');
   const [timerActive, setTimerActive]  = useState(false);
   const [timerHours, setTimerHours]    = useState(0);
   const [timerMins, setTimerMins]      = useState(25);
@@ -710,14 +712,14 @@ export const DynamicIsland = () => {
     return () => {
       yv.removeEventListener('dom-ready', injectCSS);
       yv.removeEventListener('dom-ready', injectPlaybackDetector);
-      yv.removeEventListener('console-message', handleConsoleMessage);
+yv.removeEventListener('console-message', handleConsoleMessage);
     };
   }, []);
 
   const T: Record<string, any> = {
-    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-inicio', update:'Actualización', rhythmGlow: 'Contorno Dinámico', updVers: 'Versión Actual:', updChan: 'Canal: Estable', updStatus: 'Estado del Sistema', updIdle: 'Haz clic para buscar la versión más reciente.', updWait: 'Verificando...', updErr: 'Error de Red', updRetry: 'Reintentar', updNew: 'Nueva Versión', updDesc: 'Mejoras de rendimiento y correcciones.', updBtn: 'Descargar Ahora', updSkip: 'Omitir', updLoad: 'Recibiendo Paquete...', updReady: 'Lista para Instalar', updReadyDesc: 'La descarga ha finalizado. Reinicia Notchly.', updInstall: 'Reiniciar e Instalar', updNone: 'Estás en la última versión' },
-    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-Launch', update:'Update', rhythmGlow: 'Rhythm Glow', updVers: 'Current Version:', updChan: 'Channel: Stable', updStatus: 'System Status', updIdle: 'Click below to check for the latest version.', updWait: 'Checking...', updErr: 'Network Error', updRetry: 'Retry', updNew: 'New Version', updDesc: 'Performance improvements and bug fixes.', updBtn: 'Download Now', updSkip: 'Skip', updLoad: 'Receiving Package...', updReady: 'Ready to Install', updReadyDesc: 'Download finished. Restart Notchly to apply.', updInstall: 'Restart and Install', updNone: 'You are up to date' },
-    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'自动启动', update:'更新', rhythmGlow: '节奏光晕', updVers: '当前版本:', updChan: '频道: 稳定版', updStatus: '系统状态', updIdle: '点击下方以检查最新版本。', updWait: '正在检查...', updErr: '网络错误', updRetry: '重试', updNew: '新版本', updDesc: '性能改进和错误修复。', updBtn: '立即下载', updSkip: '跳过', updLoad: '正在接收更新包...', updReady: '准备安装', updReadyDesc: '下载完成。重新启动 Notchly 以应用。', updInstall: '立即重启并安装', updNone: '已是最新版本' },
+    es: { resumen:'Resumen', sistema:'Sistema', multimedia:'Multimedia', llamada:'Llamada', notificacion:'Notificación', herramientas:'Herramientas', empty:'Limpio', now:'AHORA', settings:'AJUSTES', template:'Diseño', moderno:'Moderno', minimo:'Mínimo', clasico:'Clásico', lang:'Idioma', visibility:'Pestañas', clear:'Borrar todo', theme:'Apariencia', light:'Claro', dark:'Oscuro', timer:'Temporizador', start:'Iniciar', pause:'Pausar', reset:'Reiniciar', weatherLoc:'Ubicación Clima', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-inicio', update:'Actualización', rhythmGlow: 'Contorno Dinámico', updVers: 'Versión Actual:', updChan: 'Canal: Estable', updStatus: 'Estado del Sistema', updIdle: 'Haz clic para buscar la versión más reciente.', updWait: 'Verificando...', updErr: 'Error de Red', updRetry: 'Reintentar', updNew: 'Nueva Versión', updDesc: 'Mejoras de rendimiento y correcciones.', updBtn: 'Descargar Ahora', updSkip: 'Omitir', updLoad: 'Recibiendo Paquete...', updReady: 'Lista para Instalar', updReadyDesc: 'La descarga ha finalizado. Reinicia Notchly.', updInstall: 'Reiniciar e Instalar', updNone: 'Estás en la última versión', notifPerm: 'Acceso Notificaciones', notifStatusLabel: 'Estado:', notifReq: 'Solicitar Acceso', calSync: 'Sincronizar Calendario' },
+    en: { resumen:'Summary', sistema:'System', multimedia:'Media', llamada:'Call', notificacion:'Alerts', herramientas:'Tools', empty:'Clean', now:'NOW', settings:'SETTINGS', template:'Design', moderno:'Modern', minimo:'Minimal', clasico:'Classic', lang:'Language', visibility:'Tabs', clear:'Clear all', theme:'Theme', light:'Light', dark:'Dark', timer:'Timer', start:'Start', pause:'Pause', reset:'Reset', weatherLoc:'Weather Location', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'Auto-Launch', update:'Update', rhythmGlow: 'Rhythm Glow', updVers: 'Current Version:', updChan: 'Channel: Stable', updStatus: 'System Status', updIdle: 'Click below to check for the latest version.', updWait: 'Checking...', updErr: 'Network Error', updRetry: 'Retry', updNew: 'New Version', updDesc: 'Performance improvements and bug fixes.', updBtn: 'Download Now', updSkip: 'Skip', updLoad: 'Receiving Package...', updReady: 'Ready to Install', updReadyDesc: 'Download finished. Restart Notchly to apply.', updInstall: 'Restart and Install', updNone: 'You are up to date', notifPerm: 'Notification Access', notifStatusLabel: 'Status:', notifReq: 'Request Access', calSync: 'Sync Calendar' },
+    zh: { resumen:'摘要', sistema:'系统', multimedia:'多媒体', llamada:'通话', notificacion:'通知', herramientas:'工具', empty:'无内容', now:'现在', settings:'设置', template:'设计', moderno:'现代', minimo:'极简', clasico:'经典', lang:'语言', visibility:'标签页', clear:'全部清除', theme:'主题', light:'浅色', dark:'深色', timer:'计时器', start:'开始', pause:'暂停', reset:'重置', weatherLoc:'天气位置', whatsapp:'WhatsApp', youtube:'YouTube', autoLaunch:'自动启动', update:'更新', rhythmGlow: '节奏光晕', updVers: '当前版本:', updChan: '频道: 稳定版', updStatus: '系统状态', updIdle: '点击下方以检查最新版本。', updWait: '正在检查...', updErr: '网络错误', updRetry: '重试', updNew: '新版本', updDesc: '性能改进和错误修复。', updBtn: '立即下载', updSkip: '跳过', updLoad: '正在接收更新包...', updReady: '准备安装', updReadyDesc: '下载完成。重新启动 Notchly 以应用。', updInstall: '立即重启并安装', updNone: '已是最新版本', notifPerm: '通知访问', notifStatusLabel: '状态:', notifReq: '请求访问', calSync: '同步日历' },
   };
   const t = T[lang] ?? T.es;
 
@@ -772,6 +774,9 @@ export const DynamicIsland = () => {
         setUpdateInfo({ version: '', status: 'no-update' });
         setTimeout(() => setUpdateInfo(null), 4000);
       });
+      ipc.on('calendar-update', (_: any, data: any[]) => {
+        setEvents(data);
+      });
       ipc.on('update-error', (_: any, err: string) => {
         console.error('[UPDATER] Error:', err);
         setUpdateInfo({ version: '', status: 'error', error: err });
@@ -791,6 +796,8 @@ export const DynamicIsland = () => {
       setMeeting(data);
     });
 
+    (window as any).ipcRenderer?.invoke('get-notif-permission-status').then((s: string) => setNotifStatus(s));
+
     return () => {
       clearInterval(clock);
       if (ipc) {
@@ -806,6 +813,7 @@ export const DynamicIsland = () => {
         ipc.removeAllListeners('mouse-proximity');
         ipc.removeAllListeners('meeting-update');
         ipc.removeAllListeners('network-status');
+        ipc.removeAllListeners('calendar-update');
         ipc.send('set-ignore-mouse-events', true);
       }
     };
@@ -1513,9 +1521,23 @@ export const DynamicIsland = () => {
                               );
                             })}
                           </div>
-                          <div className="flex items-center gap-1 mt-2 text-[8px] font-black uppercase tracking-wider" style={{ opacity: 0.18 }}>
-                            <CheckSquare className="w-2.5 h-2.5 text-emerald-400" />
-                            {sel ? sel.toLocaleDateString(lang, { weekday: 'short', day: 'numeric' }) : t.empty}
+                          <div className="flex flex-col gap-1.5 mt-2 max-h-[44px] overflow-y-auto pr-1 custom-scrollbar no-drag pointer-events-auto">
+                            {events.length > 0 ? (
+                              events.map((ev, i) => (
+                                <div key={ev.id || i} className="flex items-center gap-2 group cursor-default">
+                                  {ev.type === 'video' ? <Video className="w-2.5 h-2.5 text-blue-400" /> : <CheckSquare className="w-2.5 h-2.5 text-emerald-400" />}
+                                  <div className="flex-1 flex items-baseline gap-2 min-w-0">
+                                    <span className="text-[8px] font-black uppercase truncate tracking-tight" style={{ opacity: 0.8 }}>{ev.title}</span>
+                                    <span className="text-[7px] font-black opacity-30 tabular-nums shrink-0">{ev.start}</span>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-wider" style={{ opacity: 0.18 }}>
+                                <CheckSquare className="w-2.5 h-2.5 text-emerald-400" />
+                                {sel ? sel.toLocaleDateString(lang, { weekday: 'short', day: 'numeric' }) : t.empty}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -2524,6 +2546,31 @@ export const DynamicIsland = () => {
                     >
                       {isLightMode ? t.dark : t.light}
                     </button>
+                  </div>
+
+                  {/* DIAGNÓSTICO Y PERMISOS */}
+                  <div className="flex flex-col gap-3 mt-4 pb-12">
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Diagnóstico</span>
+                    <div className="flex flex-col gap-3 p-5 rounded-[28px] border" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.06)' }}>
+                       <div className="flex justify-between items-center px-1">
+                          <span className="text-[9px] font-black uppercase opacity-40">{t.notifPerm}</span>
+                          <span className={clsx("text-[9px] font-black uppercase", notifStatus.includes('Allowed') ? "text-emerald-400" : "text-amber-400")}>{notifStatus}</span>
+                       </div>
+                       <div className="flex gap-2">
+                        <button 
+                          onClick={() => (window as any).ipcRenderer?.send('request-notification-access')}
+                          className="flex-1 py-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] font-black uppercase rounded-xl border border-blue-500/10 transition-all no-drag"
+                        >
+                          {t.notifReq}
+                        </button>
+                        <button 
+                          onClick={() => (window as any).ipcRenderer?.send('start-calendar-monitor')}
+                          className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-[9px] font-black uppercase rounded-xl border border-white/5 transition-all no-drag"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                       </div>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -20,7 +20,8 @@
     ],
     "extraResources": [
       "volume.exe",
-      "electron/*.ps1"
+      "electron/*.ps1",
+      "electron/calendar-monitor.ps1"
     ],
     "win": {
       "target": [

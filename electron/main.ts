@@ -11,18 +11,61 @@ import { autoUpdater } from 'electron-updater'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 process.env.APP_ROOT = path.join(__dirname, '..')
 
+// Resource Path Helper for Production
+const getResPath = (relPath: string) => {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, relPath);
+  }
+  const devPath = path.join(process.cwd(), relPath);
+  if (fs.existsSync(devPath)) return devPath;
+  const electronPath = path.join(process.cwd(), 'electron', relPath);
+  if (fs.existsSync(electronPath)) return electronPath;
+  return path.join(__dirname, '..', relPath); 
+};
+
 // Advanced Active Notification Monitoring (WinRT Bridge)
 let psNotif: any = null;
 let psNotifBuf = '';
 let notifMap = new Map<string, { title: string, app: string }>(); // Map hashes to notification info for dismissal
+let psCalendar: any = null;
+
+const startCalendarMonitor = () => {
+  const calPath = getResPath('calendar-monitor.ps1');
+  if (!fs.existsSync(calPath)) {
+    console.error(`[MAIN] Calendar Monitor NOT FOUND at: ${calPath}`);
+    return;
+  }
+
+  console.log(`[MAIN] Launching Calendar Monitor: ${calPath}`);
+  psCalendar = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-File', calPath]);
+  
+  psCalendar.stdout!.on('data', (d: Buffer) => {
+    const lines = d.toString().split('\n');
+    let eventsFound: any[] = [];
+    for (let line of lines) {
+      line = line.trim();
+      if (line.startsWith('__EVENT__')) {
+        const parts = line.replace('__EVENT__', '').split('|||');
+        if (parts.length >= 6) {
+          const [title, start, end, loc, type, id] = parts;
+          eventsFound.push({ title, start, end, loc, type, id });
+        }
+      }
+    }
+    if (eventsFound.length > 0) {
+      safeSend(win, 'calendar-update', eventsFound);
+    }
+  });
+
+  psCalendar.on('exit', () => setTimeout(startCalendarMonitor, 10000));
+};
 
 const startNotifMonitor = () => {
-  const paths = [
-    path.join(__dirname, 'notifications-monitor.ps1'),
-    path.join(process.cwd(), 'electron', 'notifications-monitor.ps1')
-  ];
-  const notifPath = paths.find(p => fs.existsSync(p));
-  if (!notifPath) return;
+  const notifPath = getResPath('notifications-monitor.ps1');
+  if (!fs.existsSync(notifPath)) {
+    console.error(`[MAIN] Notification Monitor NOT FOUND at: ${notifPath}`);
+    return;
+  }
 
   console.log(`[MAIN] Launching Notification Monitor: ${notifPath}`);
   psNotif = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-File', notifPath]);
@@ -313,12 +356,14 @@ function createWindow() {
 
   // ── Background Services Initialization ─────────────────────────────────────
   setTimeout(() => {
-    if (typeof startNotifMonitor === 'function') startNotifMonitor();
     requestNotificationAccess();
+    startNotifMonitor();
+    startCalendarMonitor();
+    startMediaReader();
     pollVol(); // Start volume polling
     pollNetworkStatus(); // Start WiFi/BT polling
     autoUpdater.checkForUpdatesAndNotify().catch(e => console.error('Update check failed: ' + e));
-  }, 1000);
+  }, 1200);
 
   const screenCenterX = x + (width / 2);
   if (proximityInterval) clearInterval(proximityInterval);
@@ -532,16 +577,6 @@ const pollNetworkStatus = async () => {
     if (networkInterval) clearTimeout(networkInterval);
     networkInterval = setTimeout(pollNetworkStatus, 6000) as unknown as NodeJS.Timeout;
   }
-};
-
-// Resource Path Helper for Production
-const getResPath = (relPath: string) => {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, relPath);
-  }
-  const devPath = path.join(process.cwd(), relPath);
-  if (fs.existsSync(devPath)) return devPath;
-  return path.join(__dirname, '..', relPath); 
 };
 
 // ── Volume control Helpers ───────────────────────────────────────────────
