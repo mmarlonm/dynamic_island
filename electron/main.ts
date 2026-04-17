@@ -131,17 +131,26 @@ autoUpdater.on('error', (err) => {
 
 ipcMain.on('check-for-updates', () => {
   console.log('[UPDATER] Manual check requested');
-  autoUpdater.checkForUpdates().catch(e => {
+  autoUpdater.checkForUpdates().then(result => {
+    console.log('[UPDATER] Check result:', result ? ('Update ' + (result.updateInfo.version) + ' found') : 'No update found');
+  }).catch(e => {
     console.error('[UPDATER] Check failed: ' + e);
-    safeSend(win, 'update-error', 'Error al buscar actualizaciones.');
+    safeSend(win, 'update-error', 'Error al buscar actualizaciones: ' + (e.message || String(e)));
   });
 });
 
 ipcMain.on('start-update-download', () => {
-  autoUpdater.downloadUpdate();
+  console.log('[UPDATER] Starting download...');
+  autoUpdater.downloadUpdate().then(() => {
+    console.log('[UPDATER] Download process started');
+  }).catch(e => {
+    console.error('[UPDATER] Download failed: ' + e);
+    safeSend(win, 'update-error', 'Error al descargar la actualización.');
+  });
 });
 
 ipcMain.on('install-update-now', () => {
+  console.log('[UPDATER] Quitting and installing...');
   autoUpdater.quitAndInstall();
 });
 
