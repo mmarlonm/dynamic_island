@@ -442,7 +442,7 @@ export const DynamicIsland = () => {
   const [activeView, setActiveView]   = useState<'Resumen' | 'Sistema' | 'Multimedia' | 'Notificación' | 'Herramientas' | 'Llamada' | 'Actualización' | 'WhatsApp' | 'YouTube' | 'Tienda'>('Resumen');
   const [lang, setLang]               = useState<'es' | 'en' | 'zh'>('es');
   const [isLightMode, setIsLightMode] = useState(false);
-  const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>('Moderno');
+  const [summaryTemplate, setSummaryTemplate] = useState<'Moderno' | 'Mínimo' | 'Clásico'>(() => (localStorage.getItem('summaryTemplate') as any) || 'Moderno');
   const [visibleTabs, setVisibleTabs] = useState<string[]>(['Resumen', 'Sistema', 'Multimedia', 'Llamada', 'Notificación', 'Herramientas', 'WhatsApp', 'YouTube', 'Actualización', 'Tienda']);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [media, setMedia]   = useState({ title: 'Ningún origen de medios', artist: 'Sin Reproducción', isPlaying: false, thumbnail: '', id: '' });
@@ -1016,7 +1016,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
     let h_target = 180;
     if (showSettings) h_target = 480;
     else if (isLarge) {
-      if (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView)) h_target = 600;
+      if (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube', 'Tienda'].includes(activeView)) h_target = 600;
       else if (activeView === 'Actualización') h_target = 450;
       else if (activeView === 'Sistema') h_target = 300;
       else h_target = 180;
@@ -1180,8 +1180,8 @@ yv.removeEventListener('console-message', handleConsoleMessage);
             willChange: 'width, height, transform',
           }}
           animate={{
-            width: (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
-            height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : (activeView === 'Actualización' ? 450 : (activeView === 'Sistema' ? 300 : 180))) : (superPill ? 42 : 66),
+            width: (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (['WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
+            height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 600 : (activeView === 'Actualización' ? 450 : (activeView === 'Sistema' ? 300 : 180))) : (superPill ? 42 : 66),
           }}
           transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
         >
@@ -1192,8 +1192,8 @@ yv.removeEventListener('console-message', handleConsoleMessage);
              {(() => {
                 const isLarge = showSettings || isExpanded;
                 const isPreview = showPreview && activeView === 'Multimedia';
-                const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440));
-                const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube'].includes(activeView) ? 600 : (activeView === 'Actualización' ? 450 : (activeView === 'Sistema' ? 300 : 180))) : (superPill ? 42 : 66);
+                const w = (showSettings ? 720 : isExpanded ? (isPreview ? 840 : (['WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440));
+                const h_base = showSettings ? 480 : isExpanded ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 600 : (activeView === 'Actualización' ? 450 : (activeView === 'Sistema' ? 300 : 180))) : (superPill ? 42 : 66);
                 const h = (superPill && !isLarge) ? (h_base + (musicIntensity || 0) * 4) : h_base;
                 const totalW = w + 68;
                 const neck = 42;
@@ -2159,12 +2159,14 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                   auras={storeAuras}
                   currentT={summaryTemplate}
                   currentA={auraColor}
-                  onApplyT={setSummaryTemplate}
+                  onApplyT={(id: any) => {
+                    setSummaryTemplate(id);
+                    localStorage.setItem('summaryTemplate', id);
+                  }}
                   onApplyA={(color: string) => {
                     setAuraColor(color);
                     localStorage.setItem('auraColor', color);
                   }}
-                  isLightMode={isLightMode}
                 />
               </div>
             )}
