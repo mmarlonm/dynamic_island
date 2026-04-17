@@ -34,7 +34,7 @@
       ],
       "requestedExecutionLevel": "requireAdministrator",
       "icon": "public/icon.ico",
-      "artifactName": "${productName} Setup ${version}.${ext}"
+      "artifactName": "Notchly-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
