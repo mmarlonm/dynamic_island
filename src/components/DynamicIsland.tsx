@@ -989,7 +989,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
         o.connect(g); g.connect(ctx.destination);
         o.frequency.setValueAtTime(f, ctx.currentTime + s);
         g.gain.setValueAtTime(0, ctx.currentTime + s);
-        g.gain.linearRampToValueAtTime(0.2, ctx.currentTime + s + 0.05);
+        g.gain.linearRampToValueAtTime(0.9, ctx.currentTime + s + 0.05);
         g.gain.linearRampToValueAtTime(0, ctx.currentTime + s + 0.25);
         o.start(ctx.currentTime + s); o.stop(ctx.currentTime + s + 0.3);
       };
@@ -2696,7 +2696,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
           )}
         </AnimatePresence>
         <div 
-          className="absolute left-full ml-0 top-1 pointer-events-auto flex flex-col gap-2 translate-y-[-2px]"
+          className="absolute left-full ml-2 top-1 pointer-events-auto flex flex-row items-center gap-2 translate-y-[-2px]"
           onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
           onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
         >

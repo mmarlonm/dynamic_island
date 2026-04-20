@@ -199,7 +199,26 @@ ipcMain.on('install-update-now', () => {
 
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
+});ipcMain.handle('get-notif-permission-status', async () => {
+  return new Promise((resolve) => {
+    const cmd = `
+      [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]
+      $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current
+      $status = $l.GetAccessStatus()
+      Write-Host $status
+    `;
+    exec(`powershell -Command "${cmd.replace(/\n/g, ' ').trim()}"`, (error, stdout) => {
+      if (error) {
+        console.error('[NOTIF_IPC] Error checking status:', error);
+        resolve('Denied');
+      } else {
+        const result = stdout.trim();
+        resolve(result === 'Allowed' ? 'Allowed' : 'Denied');
+      }
+    });
+  });
 });
+
 
 // Trigger Notification Access on startup
 function requestNotificationAccess() {
@@ -348,6 +367,13 @@ function createWindow() {
   } else {
     win.loadFile(path.join(RENDERER_DIST, 'index.html'));
   }
+
+  win.webContents.on('did-finish-load', () => {
+    console.log('[MAIN] Window finished loading');
+    win?.setTitle('NOTCHLY_ALIVE');
+    win?.show(); 
+    win?.setAlwaysOnTop(true, 'screen-saver');
+  });
 
   // Failsafe Visibility (v5.3.5): Start interactive and visible
   win.showInactive();

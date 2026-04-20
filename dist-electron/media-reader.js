@@ -1,71 +1,111 @@
-import { createRequire as l } from "module";
-import r from "path";
-import { fileURLToPath as p } from "url";
-const u = r.dirname(p(import.meta.url)), a = l(import.meta.url), f = r.resolve(u, "../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node"), y = process.argv[2] || "", d = r.join(y, "app.asar.unpacked", "node_modules", "node-nowplaying-win32-x64-msvc", "n-nowplaying.win32-x64-msvc.node");
-let i;
+import { createRequire } from "module";
+import path from "path";
+import { fileURLToPath } from "url";
+const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
+const require$1 = createRequire(import.meta.url);
+const devPath = path.resolve(__dirname$1, "../node_modules/node-nowplaying-win32-x64-msvc/n-nowplaying.win32-x64-msvc.node");
+const resourcesPath = process.argv[2] || "";
+const prodPath = path.join(resourcesPath, "app.asar.unpacked", "node_modules", "node-nowplaying-win32-x64-msvc", "n-nowplaying.win32-x64-msvc.node");
+let NowPlayingModule;
 try {
   try {
-    i = a("node-nowplaying").NowPlaying;
-  } catch {
+    const npPkg = require$1("node-nowplaying");
+    NowPlayingModule = npPkg.NowPlaying;
+  } catch (e) {
     try {
-      const o = a(f);
-      i = o.NowPlaying || o;
-    } catch {
-      const n = a(d);
-      i = n.NowPlaying || n;
+      const binding = require$1(devPath);
+      NowPlayingModule = binding.NowPlaying || binding;
+    } catch (e2) {
+      const binding = require$1(prodPath);
+      NowPlayingModule = binding.NowPlaying || binding;
     }
   }
-  if (!i)
+  if (!NowPlayingModule) {
     throw new Error("Could not find NowPlaying module");
-  const e = new i((t) => {
-    process.send && process.connected && process.send({
-      type: "MEDIA_UPDATE",
-      data: {
-        title: t.trackName || "Sin Reproducción",
-        artist: t.artist || [],
-        album: t.album || "",
-        isPlaying: t.isPlaying || !1,
-        thumbnail: t.thumbnail || "",
-        id: t.id || "system",
-        progress: 0
-      }
-    });
+  }
+  const np = new NowPlayingModule((msg) => {
+    if (process.send && process.connected) {
+      process.send({
+        type: "MEDIA_UPDATE",
+        data: {
+          title: msg.trackName || "Sin Reproducción",
+          artist: msg.artist || [],
+          album: msg.album || "",
+          isPlaying: msg.isPlaying || false,
+          thumbnail: msg.thumbnail || "",
+          id: msg.id || "system",
+          progress: 0
+        }
+      });
+    }
   }, {
     logLevelDirective: "error"
   });
-  e.subscribe().catch((t) => {
+  np.subscribe().catch((err) => {
   });
-  const c = a("child_process").exec, s = (t) => {
-    c(`powershell -Command "$s=New-Object -ComObject Shell.Application;$s.SendKeys([char]${t === "next" ? 176 : t === "prev" ? 177 : 179})"`);
+  const exec = require$1("child_process").exec;
+  const sendMediaKey = (key) => {
+    const code = key === "next" ? 176 : key === "prev" ? 177 : 179;
+    exec(`powershell -Command "$s=New-Object -ComObject Shell.Application;$s.SendKeys([char]${code})"`);
   };
-  e && typeof e == "object" && console.log("[MEDIA_READER] Native methods discovered:", Object.keys(e).filter((t) => typeof e[t] == "function")), process.on("message", async (t) => {
+  if (np && typeof np === "object") {
+    console.log("[MEDIA_READER] Native methods discovered:", Object.keys(np).filter((k) => typeof np[k] === "function"));
+  }
+  process.on("message", async (cmd) => {
     try {
-      if (!e) {
-        s(t);
+      if (!np) {
+        sendMediaKey(cmd);
         return;
       }
-      let o = !1;
-      if (t === "playPause")
+      let success = false;
+      if (cmd === "playPause") {
         try {
-          typeof e.playPause == "function" ? (await e.playPause(), o = !0) : typeof e.togglePause == "function" && (await e.togglePause(), o = !0);
-        } catch {
+          if (typeof np.playPause === "function") {
+            await np.playPause();
+            success = true;
+          } else if (typeof np.togglePause === "function") {
+            await np.togglePause();
+            success = true;
+          }
+        } catch (e) {
         }
-      else if (t === "next")
+      } else if (cmd === "next") {
         try {
-          typeof e.nextTrack == "function" ? (await e.nextTrack(), o = !0) : typeof e.skipNext == "function" ? (await e.skipNext(), o = !0) : typeof e.next == "function" && (await e.next(), o = !0);
-        } catch {
+          if (typeof np.nextTrack === "function") {
+            await np.nextTrack();
+            success = true;
+          } else if (typeof np.skipNext === "function") {
+            await np.skipNext();
+            success = true;
+          } else if (typeof np.next === "function") {
+            await np.next();
+            success = true;
+          }
+        } catch (e) {
         }
-      else if (t === "prev")
+      } else if (cmd === "prev") {
         try {
-          typeof e.previousTrack == "function" ? (await e.previousTrack(), o = !0) : typeof e.skipPrevious == "function" ? (await e.skipPrevious(), o = !0) : typeof e.previous == "function" && (await e.previous(), o = !0);
-        } catch {
+          if (typeof np.previousTrack === "function") {
+            await np.previousTrack();
+            success = true;
+          } else if (typeof np.skipPrevious === "function") {
+            await np.skipPrevious();
+            success = true;
+          } else if (typeof np.previous === "function") {
+            await np.previous();
+            success = true;
+          }
+        } catch (e) {
         }
-      o || s(t);
-    } catch {
-      s(t);
+      }
+      if (!success) {
+        sendMediaKey(cmd);
+      }
+    } catch (e) {
+      sendMediaKey(cmd);
     }
   });
-} catch {
+} catch (e) {
 }
 setInterval(() => {
 }, 1e3);
