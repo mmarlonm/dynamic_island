@@ -14520,33 +14520,33 @@ ipcMain.on("dismiss-notification", (_, id) => {
   const info = notifMap.get(String(id));
   if (!info) return;
   const dismissCmd = `
-    $ErrorActionPreference = 'SilentlyContinue'
-    [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]
-    $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current
-    $o = $l.GetNotificationsAsync(1)
-    $asInfo = [Windows.Foundation.IAsyncInfo]$o
-    while($asInfo.Status -eq 'Started') { [System.Threading.Thread]::Sleep(50) }
-    $ns = $o.GetResults()
+    $ErrorActionPreference = 'SilentlyContinue';
+    [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime];
+    $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current;
+    $o = $l.GetNotificationsAsync(1);
+    $asInfo = [Windows.Foundation.IAsyncInfo]$o;
+    while($asInfo.Status -eq 'Started') { [System.Threading.Thread]::Sleep(50) };
+    $ns = $o.GetResults();
     $t = $ns | Where-Object { 
         ($_.AppInfo.DisplayInfo.DisplayName -match '${info.app}' -or $_.AppInfo.Id -match '${info.app}') -and 
         ($_.Notification.Visual.GetBinding('ToastGeneric').GetTextElements()[0].Text -like '*${info.title.replace(/'/g, "''")}*')
-    } | Select-Object -First 1
-    if ($t) { $l.RemoveNotification($t.Id) }
+    } | Select-Object -First 1;
+    if ($t) { $l.RemoveNotification($t.Id) };
   `;
   spawn("powershell", ["-Command", dismissCmd]);
   notifMap.delete(String(id));
 });
 ipcMain.on("clear-all-notifications", () => {
   const clearAllCmd = `
-    $ErrorActionPreference = 'SilentlyContinue'
-    [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]
-    $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current
-    $o = $l.GetNotificationsAsync(1)
-    $asInfo = [Windows.Foundation.IAsyncInfo]$o
-    while($asInfo.Status -eq 'Started') { [System.Threading.Thread]::Sleep(50) }
-    $ns = $o.GetResults()
+    $ErrorActionPreference = 'SilentlyContinue';
+    [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime];
+    $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current;
+    $o = $l.GetNotificationsAsync(1);
+    $asInfo = [Windows.Foundation.IAsyncInfo]$o;
+    while($asInfo.Status -eq 'Started') { [System.Threading.Thread]::Sleep(50) };
+    $ns = $o.GetResults();
     foreach($n in $ns) {
-      $l.RemoveNotification($n.Id)
+      $l.RemoveNotification($n.Id);
     }
   `;
   spawn("powershell", ["-Command", clearAllCmd]);
@@ -14604,13 +14604,8 @@ ipcMain.handle("get-app-version", () => {
 });
 ipcMain.handle("get-notif-permission-status", async () => {
   return new Promise((resolve) => {
-    const cmd = `
-      [void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]
-      $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current
-      $status = $l.GetAccessStatus()
-      Write-Host $status
-    `;
-    exec(`powershell -Command "${cmd.replace(/\n/g, " ").trim()}"`, (error2, stdout) => {
+    const cmd = `[void][Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]; $l = [Windows.UI.Notifications.Management.UserNotificationListener]::Current; $status = $l.GetAccessStatus(); Write-Host $status`;
+    exec(`powershell -Command "${cmd}"`, (error2, stdout) => {
       if (error2) {
         console.error("[NOTIF_IPC] Error checking status:", error2);
         resolve("Denied");
@@ -14703,6 +14698,9 @@ ipcMain.on("update-island-pos", (_, x) => {
 let lastAutoCheckTime = 0;
 ipcMain.on("set-is-expanded", (_, expanded) => {
   isExpandedMode = expanded;
+  if (expanded && win) {
+    win.setIgnoreMouseEvents(false, { forward: true });
+  }
   if (expanded && Date.now() - lastAutoCheckTime > 30 * 60 * 1e3) {
     lastAutoCheckTime = Date.now();
     console.log("[UPDATER] Auto-check triggered on expansion");
@@ -14717,6 +14715,22 @@ ipcMain.on("set-window-dimensions", (_, d) => {
 ipcMain.on("set-bubbles-state", (_, s) => {
   isCallActive = s.call;
   isControlsActive = s.controls;
+});
+let isAlwaysOnTop = true;
+ipcMain.on("set-always-on-top", (_, flag) => {
+  isAlwaysOnTop = flag;
+  if (win) {
+    win.setAlwaysOnTop(flag, "screen-saver", 1);
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    console.log(`[MAIN] Always on top set to: ${flag} (Level: screen-saver, Visible: ${win.isVisible()})`);
+  }
+});
+ipcMain.on("set-ignore-mouse-events", (_, ignore) => {
+  if (ignore) {
+    win == null ? void 0 : win.setIgnoreMouseEvents(true, { forward: true });
+  } else {
+    win == null ? void 0 : win.setIgnoreMouseEvents(false);
+  }
 });
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -14753,8 +14767,34 @@ function createWindow() {
     win == null ? void 0 : win.setAlwaysOnTop(true, "screen-saver");
   });
   win.showInactive();
-  win.setIgnoreMouseEvents(false);
+  win.setIgnoreMouseEvents(true, { forward: true });
   win.setAlwaysOnTop(true, "screen-saver");
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  setTimeout(() => {
+    if (win && !win.isDestroyed()) {
+      win.setAlwaysOnTop(true, "screen-saver", 1);
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      console.log("[MAIN] Always on top re-enforced after startup delay");
+    }
+  }, 5e3);
+  setInterval(() => {
+    if (win && !win.isDestroyed() && isAlwaysOnTop) {
+      if (!win.isVisible()) win.showInactive();
+      win.setAlwaysOnTop(true, "screen-saver", 1);
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      win.setSkipTaskbar(true);
+    }
+  }, 1e4);
+  win.on("blur", () => {
+    if (win && !win.isDestroyed() && isAlwaysOnTop) {
+      win.setAlwaysOnTop(true, "screen-saver", 1);
+    }
+  });
+  win.on("focus", () => {
+    if (win && !win.isDestroyed() && isAlwaysOnTop) {
+      win.setAlwaysOnTop(true, "screen-saver", 1);
+    }
+  });
   setTimeout(() => {
     requestNotificationAccess();
     startNotifMonitor();
@@ -14773,18 +14813,24 @@ function createWindow() {
       const islandPhysicalX = screenCenterX + (currentIslandX || 0);
       const halfW = (currentWidth || 440) / 2;
       const h = currentHeight || 66;
-      const isOverMainIsland = Math.abs(mouseX - islandPhysicalX) < halfW + 10 && mouseY >= y - 5 && mouseY < y + h + 10;
+      const buffer = isExpandedMode ? 10 : 5;
+      const isOverMainIsland = Math.abs(mouseX - islandPhysicalX) < halfW + buffer && mouseY >= y - 20 && mouseY < y + h + buffer;
       let isOverLeftBubbles = false;
       if (!isExpandedMode && (isCallActive || isControlsActive)) {
         const islandLeftEdge = islandPhysicalX - halfW;
         const bubbleWidth = isCallActive && isControlsActive ? 140 : 70;
-        isOverLeftBubbles = mouseX >= islandLeftEdge - bubbleWidth - 20 && mouseX < islandLeftEdge - 5 && mouseY >= y - 5 && mouseY < y + 70;
+        isOverLeftBubbles = mouseX >= islandLeftEdge - bubbleWidth - 30 && mouseX < islandLeftEdge - 5 && mouseY >= y - 10 && mouseY < y + 80;
       }
-      const isOverPill = isOverMainIsland || isOverLeftBubbles;
-      win.setIgnoreMouseEvents(!isOverPill, { forward: true });
+      const isOverLargeView = isExpandedMode && Math.abs(mouseX - islandPhysicalX) < halfW + buffer && mouseY < y + h + buffer;
+      const isOverPill = isOverMainIsland || isOverLeftBubbles || isOverLargeView;
+      if (isOverPill) {
+        win.setIgnoreMouseEvents(false);
+      } else {
+        win.setIgnoreMouseEvents(true, { forward: true });
+      }
     } catch (e) {
     }
-  }, 30);
+  }, 32);
   win.on("closed", () => {
     if (proximityInterval) clearInterval(proximityInterval);
     if (systemUpdateInterval) clearInterval(systemUpdateInterval);
@@ -14924,13 +14970,13 @@ const pollNetworkStatus = async () => {
     const script = `
       $wifi = $false; $bt = $false
       try {
-        $w = Get-WmiObject -Class Win32_NetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Wi-Fi|Wireless|WLAN' -and $_.PhysicalAdapter -eq $true } | Select-Object -First 1
-        if ($w -and $w.NetEnabled) { $wifi = $true }
+        $w = Get-WmiObject -Class Win32_NetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Wi-Fi|Wireless|WLAN' -and $_.PhysicalAdapter -eq $true } | Select-Object -First 1;
+        if ($w -and $w.NetEnabled) { $wifi = $true };
         
-        $b = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { ($_.InstanceId -match '^USB|^PCI') -and ($_.FriendlyName -notmatch 'Enumerator|LE|Device|Phone|Hands-free') } | Select-Object -First 1
-        if ($b -and $b.Status -eq 'OK') { $bt = $true }
-      } catch {}
-      Write-Output "$($wifi)|$($bt)"
+        $b = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { ($_.InstanceId -match '^USB|^PCI') -and ($_.FriendlyName -notmatch 'Enumerator|LE|Device|Phone|Hands-free') } | Select-Object -First 1;
+        if ($b -and $b.Status -eq 'OK') { $bt = $true };
+      } catch {};
+      Write-Output "$($wifi)|$($bt)";
     `;
     exec(`powershell -Command "${script.replace(/\n/g, " ")}"`, (err, stdout) => {
       var _a, _b;
@@ -14991,8 +15037,16 @@ const startMediaReader = () => {
     console.log(`[MAIN] Launching Media Reader: ${mediaReaderPath}`);
     mediaProc = fork(mediaReaderPath, [process.resourcesPath || ""], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-      stdio: ["inherit", "inherit", "inherit", "ipc"]
+      stdio: ["inherit", "pipe", "pipe", "ipc"]
     });
+    const filterLog = (data, prefix) => {
+      const str2 = data.toString();
+      if (str2.includes("failed to get playback info") || str2.includes("OperaSoftware")) return;
+      if (prefix === "ERR") console.error(`[MEDIA_READER_ERR] ${str2.trim()}`);
+      else console.log(`[MEDIA_READER] ${str2.trim()}`);
+    };
+    if (mediaProc.stdout) mediaProc.stdout.on("data", (d) => filterLog(d, "LOG"));
+    if (mediaProc.stderr) mediaProc.stderr.on("data", (d) => filterLog(d, "ERR"));
     if (mediaProc) {
       mediaProc.on("exit", (code) => {
         console.warn(`[MAIN] Media Reader exited with code ${code}. Restarting in 3s...`);

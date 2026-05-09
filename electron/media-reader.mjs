@@ -48,7 +48,7 @@ try {
       });
     }
   }, {
-    logLevelDirective: 'error'
+    logLevelDirective: 'none'
   });
 
   np.subscribe().catch(err => { });
