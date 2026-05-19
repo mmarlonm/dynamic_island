@@ -232,12 +232,16 @@ if (process.platform === 'win32') {
 }
 
 let win: BrowserWindow | null;
+let isQuitting = false;
 let isExpandedMode = false;
 let isSuperPill = false;
 let isPreviewMode = false;
 let currentIslandX = 0;
 let currentWidth = 440;
 let currentHeight = 66;
+let currentIslandY = 0;
+let currentDockMode: 'top' | 'floating' | 'right' | 'left' = 'top';
+let currentFloatingOffset = 20;
 let isInMeetingApp = false
 let isCallActive = false;
 let isControlsActive = false;
@@ -249,6 +253,7 @@ let currentMicState = false
 let isUserMuted = false
 let isUserCamOff = false;  // Track manual camera toggle
 let meetingExitCounter = 0 // Debounce meeting exit
+let lastTimeOverPill = Date.now();
 
 let proximityInterval: NodeJS.Timeout | null = null;
 let systemUpdateInterval: NodeJS.Timeout | null = null;
@@ -315,12 +320,15 @@ ipcMain.on('set-weather-location', (_e, loc: string) => {
 ipcMain.on('set-is-super-pill', (_, active) => { isSuperPill = active; });
 ipcMain.on('set-is-preview', (_, preview) => { isPreviewMode = preview; });
 ipcMain.on('update-island-pos', (_, x) => { currentIslandX = x; });
+ipcMain.on('update-island-pos-y', (_, y) => { currentIslandY = y; });
+ipcMain.on('set-dock-mode', (_, mode) => { currentDockMode = mode; });
+ipcMain.on('set-floating-offset', (_, offset) => { currentFloatingOffset = offset; });
 
 let lastAutoCheckTime = 0;
 ipcMain.on('set-is-expanded', (_, expanded) => { 
   isExpandedMode = expanded; 
   if (expanded && win) {
-    win.setIgnoreMouseEvents(false, { forward: true });
+    win.setIgnoreMouseEvents(false);
   }
   // Trigger auto-check when expanding if more than 30 mins passed
   if (expanded && Date.now() - lastAutoCheckTime > 30 * 60 * 1000) {
@@ -339,20 +347,28 @@ ipcMain.on('set-bubbles-state', (_, s) => {
 });
 
 let isAlwaysOnTop = true;
+let lastIgnoreState: boolean | null = null;
 ipcMain.on('set-always-on-top', (_, flag) => {
-  isAlwaysOnTop = flag;
+  // Borderless fullscreen overlay windows must strictly remain always-on-top at all times to prevent going behind other apps and disappearing
+  isAlwaysOnTop = true;
   if (win) {
-    win.setAlwaysOnTop(flag, 'screen-saver', 1);
+    win.setAlwaysOnTop(true, 'screen-saver', 1);
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    console.log(`[MAIN] Always on top set to: ${flag} (Level: screen-saver, Visible: ${win.isVisible()})`);
+    console.log(`[MAIN] Always on top strictly set to: true (Level: screen-saver, Visible: ${win.isVisible()})`);
   }
 });
 
 ipcMain.on('set-ignore-mouse-events', (_, ignore) => {
   if (ignore) {
-    win?.setIgnoreMouseEvents(true, { forward: true });
+    if (lastIgnoreState !== true) {
+      lastIgnoreState = true;
+      win?.setIgnoreMouseEvents(true, { forward: true });
+    }
   } else {
-    win?.setIgnoreMouseEvents(false);
+    if (lastIgnoreState !== false) {
+      lastIgnoreState = false;
+      win?.setIgnoreMouseEvents(false);
+    }
   }
 });
 
@@ -362,7 +378,7 @@ function createWindow() {
 
   win = new BrowserWindow({
     width: width,
-    height: 800,
+    height: height,
     x: x,
     y: y,
     frame: false,
@@ -430,6 +446,13 @@ function createWindow() {
     }
   });
 
+  win.on('minimize', () => {
+    if (win && !win.isDestroyed()) {
+      win.restore();
+      win.showInactive();
+    }
+  });
+
   // ── Background Services Initialization ─────────────────────────────────────
   setTimeout(() => {
     requestNotificationAccess();
@@ -442,7 +465,11 @@ function createWindow() {
   }, 1200);
 
   const screenCenterX = x + (width / 2);
+  const screenCenterY = y + (height / 2);
   if (proximityInterval) clearInterval(proximityInterval);
+
+  let debugCounter = 0;
+  let expansionGraceUntil = 0;
 
   proximityInterval = setInterval(() => {
     try {
@@ -450,42 +477,112 @@ function createWindow() {
 
       const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
       
-      const islandPhysicalX = screenCenterX + (currentIslandX || 0);
-      const halfW = (currentWidth || 440) / 2;
-      const h = (currentHeight || 66);
+      const inGracePeriod = Date.now() < expansionGraceUntil;
+      const effectiveExpanded = isExpandedMode || inGracePeriod;
 
-      // 1. Detection zone for main island
-      const buffer = isExpandedMode ? 10 : 5;
-      const isOverMainIsland = Math.abs(mouseX - islandPhysicalX) < (halfW + buffer) && 
-                               mouseY >= (y - 20) && 
-                               mouseY < (y + h + buffer);
+      let effectiveWidth = currentWidth || 440;
+      let effectiveHeight = currentHeight || 66;
+
+      if (effectiveExpanded && !isExpandedMode) {
+        // We are in the grace period but React hasn't updated dimensions yet
+        if (currentDockMode === 'left' || currentDockMode === 'right') {
+          effectiveWidth = 360;
+          effectiveHeight = 400;
+        } else {
+          effectiveWidth = 748;
+          effectiveHeight = 600;
+        }
+      }
+
+      const halfW = effectiveWidth / 2;
+      const halfH = effectiveHeight / 2;
+
+      let left = 0, right = 0, top = 0, bottom = 0;
+      const buffer = effectiveExpanded ? 30 : 12;
+
+      if (currentDockMode === 'left') {
+        const islandYVal = y + 96 + halfH;
+        left = x - 10;
+        right = x + effectiveWidth + buffer;
+        top = islandYVal - halfH - buffer;
+        bottom = islandYVal + halfH + buffer;
+      } else if (currentDockMode === 'right') {
+        const islandYVal = y + 96 + halfH;
+        left = x + width - effectiveWidth - buffer;
+        right = x + width + 10;
+        top = islandYVal - halfH - buffer;
+        bottom = islandYVal + halfH + buffer;
+      } else if (currentDockMode === 'floating') {
+        const islandXVal = screenCenterX + (currentIslandX || 0);
+        const fOffset = currentFloatingOffset || 20;
+        left = islandXVal - halfW - buffer;
+        right = islandXVal + halfW + buffer;
+        top = y + fOffset - buffer;
+        bottom = y + fOffset + effectiveHeight + buffer;
+      } else {
+        // top dock
+        const islandXVal = screenCenterX + (currentIslandX || 0);
+        left = islandXVal - halfW - buffer;
+        right = islandXVal + halfW + buffer;
+        top = y - 20;
+        bottom = y + effectiveHeight + buffer;
+      }
+
+      const isOverMainIsland = mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
       
-      // 2. Detection zone for left-side bubbles (only if active)
+      // Debug log every 3 seconds to verify bounds
+      debugCounter++;
+      if (debugCounter % 94 === 0) {
+        console.log(`[PROXIMITY] mode=${currentDockMode} expanded=${isExpandedMode} (effective=${effectiveExpanded}) dims=${effectiveWidth}x${effectiveHeight} bounds=[${Math.round(left)},${Math.round(right)},${Math.round(top)},${Math.round(bottom)}] mouse=[${mouseX},${mouseY}] over=${isOverMainIsland} ignore=${lastIgnoreState}`);
+      }
+
+      // 2. Detection zone for left-side bubbles (only if active in top/floating mode)
       let isOverLeftBubbles = false;
-      if (!isExpandedMode && (isCallActive || isControlsActive)) {
-          const islandLeftEdge = islandPhysicalX - halfW;
+      if ((currentDockMode === 'top' || currentDockMode === 'floating') && !isExpandedMode && (isCallActive || isControlsActive)) {
+          const islandXVal = screenCenterX + (currentIslandX || 0);
+          const islandLeftEdge = islandXVal - halfW;
           const bubbleWidth = (isCallActive && isControlsActive) ? 140 : 70;
+          const bubbleTop = currentDockMode === 'floating' ? (y + (currentFloatingOffset || 20) - 10) : (y - 10);
+          const bubbleBottom = bubbleTop + 90;
           isOverLeftBubbles = mouseX >= (islandLeftEdge - bubbleWidth - 30) &&
                               mouseX < (islandLeftEdge - 5) &&
-                              mouseY >= (y - 10) &&
-                              mouseY < (y + 80);
+                              mouseY >= bubbleTop &&
+                              mouseY < bubbleBottom;
       }
 
-      // 3. Detection zone for Settings or other large views
-      const isOverLargeView = isExpandedMode && 
-                              Math.abs(mouseX - islandPhysicalX) < (halfW + buffer) && 
-                              mouseY < (y + h + buffer);
-
-      const isOverPill = isOverMainIsland || isOverLeftBubbles || isOverLargeView;
+      const isOverPill = isOverMainIsland || isOverLeftBubbles;
       
-      // ONLY enable mouse events if over the content
+      // ONLY enable mouse events if over the content, debounced to avoid interrupting click sequences
       if (isOverPill) {
-        win.setIgnoreMouseEvents(false);
+        lastTimeOverPill = Date.now();
+        if (lastIgnoreState !== false) {
+          lastIgnoreState = false;
+          win.setIgnoreMouseEvents(false);
+          safeSend(win, 'hover-changed', true);
+          
+          // Trigger grace period when transition starts
+          if (!isExpandedMode) {
+            expansionGraceUntil = Date.now() + 1000; // 1 second grace period to allow full expansion
+          }
+        }
       } else {
-        win.setIgnoreMouseEvents(true, { forward: true });
+        const timeSinceOverPill = Date.now() - lastTimeOverPill;
+        if (timeSinceOverPill > 350) { // 350ms hover-out grace period / debounce
+          if (lastIgnoreState !== true) {
+            lastIgnoreState = true;
+            win.setIgnoreMouseEvents(true, { forward: true });
+            safeSend(win, 'hover-changed', false);
+          }
+        }
       }
     } catch (e) {}
-  }, 32); 
+  }, 32);  
+
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+    }
+  });
 
   win.on('closed', () => {
     if (proximityInterval) clearInterval(proximityInterval);
@@ -1156,6 +1253,7 @@ Set-RadioState -RadioKind $args[0]
   // ...
 
   app.on('before-quit', () => { 
+    isQuitting = true;
     mediaProc?.kill(); 
     if (typeof psMeet !== 'undefined' && psMeet) (psMeet as any).kill(); 
     if (typeof psNotif !== 'undefined' && psNotif) (psNotif as any).kill();
@@ -1164,7 +1262,6 @@ Set-RadioState -RadioKind $args[0]
   console.error('[MAIN] Setup Error:', err);
 }
 
-app.on('window-all-closed', () => {
-  win = null;
-  if (process.platform !== 'darwin') app.quit();
+app.on('window-all-closed', (e) => {
+  e.preventDefault();
 });

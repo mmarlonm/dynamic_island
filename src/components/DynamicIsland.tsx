@@ -4,7 +4,7 @@ import {
   Settings, Play, Pause, SkipBack, SkipForward, Music, Bell, Cloud,
   CheckSquare, Pin, Activity, Volume2, HardDrive, Cpu, Trash2, Eye,
   EyeOff, BellOff, Timer, RotateCcw, Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
-  ChevronLeft, ChevronRight, Download, MessageCircle, Wifi, WifiOff, Bluetooth, LayoutGrid, GripVertical, CheckCircle2,
+  Download, MessageCircle, Wifi, WifiOff, Bluetooth, LayoutGrid, GripVertical, CheckCircle2,
   ShoppingBag, Zap, Layers
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -391,7 +391,9 @@ const MiniIslandPreview = ({
 };
 
 // ── Style Store Component (Tienda) ──────────────────────────────────────────
-const TiendaView = ({ t, templates, auras, currentT, currentA, onApplyT, onApplyA }: any) => {
+const TiendaView = ({ t, templates, auras, currentT, currentA, onApplyT, onApplyA, dockMode }: any) => {
+  const isSideDock = dockMode === 'left' || dockMode === 'right';
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden no-drag h-full" onPointerDown={(e) => e.stopPropagation()}>
       <div className="relative h-24 shrink-0 rounded-[28px] overflow-hidden mb-4 group shadow-2xl border border-white/5">
@@ -422,7 +424,10 @@ const TiendaView = ({ t, templates, auras, currentT, currentA, onApplyT, onApply
                 )} />
                 <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Colección {cat}</span>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className={clsx(
+                "grid gap-3",
+                isSideDock ? "grid-cols-1" : "grid-cols-3"
+              )}>
                 {catTemplates.map((tmpl: any) => (
                   <div 
                     key={tmpl.id} 
@@ -466,7 +471,10 @@ const TiendaView = ({ t, templates, auras, currentT, currentA, onApplyT, onApply
             <Zap className="w-4 h-4 text-emerald-400" />
             <span className="text-[11px] font-black uppercase tracking-[0.3em] text-emerald-500">Auras de Contorno</span>
           </div>
-          <div className="grid grid-cols-4 gap-3">
+          <div className={clsx(
+            "grid gap-3",
+            isSideDock ? "grid-cols-2" : "grid-cols-4"
+          )}>
             {auras.map((aura: any) => (
               <button 
                 key={aura.id} 
@@ -518,6 +526,30 @@ export const DynamicIsland = () => {
   const youtubeWebviewRef  = useRef<any>(null);
 
   // 0-100 system volume
+  const [batteryLevel, setBatteryLevel] = useState(100);
+  const [isCharging, setIsCharging] = useState(false);
+
+  useEffect(() => {
+    let battObj: any = null;
+    const onLvlChange = () => { if (battObj) setBatteryLevel(Math.round(battObj.level * 100)); };
+    const onChgChange = () => { if (battObj) setIsCharging(battObj.charging); };
+
+    if ('getBattery' in navigator) {
+      (navigator as any).getBattery().then((batt: any) => {
+        battObj = batt;
+        setBatteryLevel(Math.round(batt.level * 100));
+        setIsCharging(batt.charging);
+        batt.addEventListener('levelchange', onLvlChange);
+        batt.addEventListener('chargingchange', onChgChange);
+      });
+    }
+    return () => {
+      if (battObj) {
+        battObj.removeEventListener('levelchange', onLvlChange);
+        battObj.removeEventListener('chargingchange', onChgChange);
+      }
+    };
+  }, []);
 
   const [timerTime, setTimerTime]      = useState(0);
   const [currentVersion, setCurrentVersion] = useState('0.0.0');
@@ -533,11 +565,10 @@ export const DynamicIsland = () => {
   const timerRef = useRef<any>(null);
   const lastCommandTimeRef = useRef(0);
   const volDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Selected calendar day
-  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [superPill, setSuperPill] = useState(false);
   const [superPillMode, setSuperPillMode] = useState<'Auto' | 'Multimedia' | 'Clima'>('Auto');
-  const [calendarOffset, setCalendarOffset] = useState(0);
+  const [dockMode, setDockMode] = useState<'top' | 'floating' | 'left' | 'right'>(() => (localStorage.getItem('dockMode') as any) || 'top');
+  const [floatingOffset] = useState<number>(10);
   const [auraColor, setAuraColor] = useState(() => localStorage.getItem('auraColor') || '#3b82f6');
   const [showPreview, setShowPreview] = useState(false);
   const [visitedViews, setVisitedViews] = useState<Set<string>>(new Set(['Resumen']));
@@ -549,6 +580,7 @@ export const DynamicIsland = () => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isCollapsing, setIsCollapsing] = useState(false); // Track active transition
   const isExpanded = isHovered || isPinned || showSettings;
+  const isSideDock = dockMode === 'left' || dockMode === 'right';
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [lastSelectedCity, setLastSelectedCity] = useState(localStorage.getItem('weatherLocation') || '');
   const [showControlsBubble, setShowControlsBubble] = useState(JSON.parse(localStorage.getItem('showControlsBubble') || 'true'));
@@ -1068,19 +1100,40 @@ yv.removeEventListener('console-message', handleConsoleMessage);
   useEffect(() => {
     const ipc = (window as any).ipcRenderer;
     const isLarge = isHovered || isPinned || showSettings;
-    const totalW = (showSettings ? 720 : isLarge ? (activeView === 'Multimedia' && showPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68;
     
-    // Height mapping for different views to prevent click-through issues
-    let h_target = 180;
-    if (showSettings) h_target = 480;
-    else if (isLarge) {
-      if (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube', 'Tienda'].includes(activeView)) h_target = 600;
-      else if (activeView === 'Actualización') h_target = 450;
-      else if (activeView === 'Sistema') h_target = 300;
-      else if (activeView === 'Resumen') h_target = 180;
-      else h_target = 180;
+    let totalW = 440 + 68;
+    let h_target = 66;
+
+    if (dockMode === 'left' || dockMode === 'right') {
+      if (isLarge) {
+        totalW = showSettings ? 560 : 360;
+        h_target = 400;
+      } else {
+        totalW = 44;
+        h_target = 120;
+      }
+    } else if (dockMode === 'floating') {
+      if (isLarge) {
+        totalW = (showSettings ? 720 : (activeView === 'Multimedia' && showPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680))) + 68;
+        h_target = showSettings ? 480 : (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 600 : (activeView === 'Actualización' ? 450 : (activeView === 'Sistema' ? 300 : 180)));
+      } else {
+        totalW = 360;
+        h_target = 120;
+      }
     } else {
-      h_target = superPill ? 42 : 66;
+      // top dock
+      totalW = (showSettings ? 720 : isLarge ? (activeView === 'Multimedia' && showPreview ? 840 : (['WhatsApp', 'YouTube'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68;
+      
+      if (showSettings) h_target = 480;
+      else if (isLarge) {
+        if (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube', 'Tienda'].includes(activeView)) h_target = 600;
+        else if (activeView === 'Actualización') h_target = 450;
+        else if (activeView === 'Sistema') h_target = 300;
+        else if (activeView === 'Resumen') h_target = 180;
+        else h_target = 180;
+      } else {
+        h_target = superPill ? 42 : 66;
+      }
     }
     
     ipc?.send('set-window-dimensions', { w: totalW, h: h_target });
@@ -1090,7 +1143,23 @@ yv.removeEventListener('console-message', handleConsoleMessage);
       call: meeting.isActive && !isLarge, 
       controls: showControlsBubble && !isLarge 
     });
-  }, [isExpanded, superPill, activeView, isHovered, isPinned, showSettings, showPreview, meeting.isActive, showControlsBubble]);
+    
+    const isInteractive = isExpanded || isHovered || isPinned || showSettings;
+    ipc?.send('set-ignore-mouse-events', !isInteractive);
+  }, [isExpanded, superPill, activeView, isHovered, isPinned, showSettings, showPreview, meeting.isActive, showControlsBubble, dockMode, floatingOffset]);
+
+  // Sync dockMode and floatingOffset with Electron main process
+  useEffect(() => {
+    const ipc = (window as any).ipcRenderer;
+    ipc?.send('set-dock-mode', dockMode);
+    localStorage.setItem('dockMode', dockMode);
+  }, [dockMode]);
+
+  useEffect(() => {
+    const ipc = (window as any).ipcRenderer;
+    ipc?.send('set-floating-offset', floatingOffset);
+    localStorage.setItem('floatingOffset', String(floatingOffset));
+  }, [floatingOffset]);
 
 
   useEffect(() => {
@@ -1109,8 +1178,22 @@ yv.removeEventListener('console-message', handleConsoleMessage);
   // Sync isPinned with main process and localStorage
   useEffect(() => {
     localStorage.setItem('isPinned', JSON.stringify(isPinned));
-    (window as any).ipcRenderer?.send('set-always-on-top', isPinned);
+    (window as any).ipcRenderer?.send('set-always-on-top', true);
   }, [isPinned]);
+
+  // Handle hover synchronization from OS-level mouse-proximity detector
+  useEffect(() => {
+    const ipc = (window as any).ipcRenderer;
+    const handleHoverChanged = (_e: any, hover: boolean) => {
+      if (!isPinnedRef.current && !showSettingsRef.current) {
+        setIsHovered(hover);
+      }
+    };
+    ipc?.on('hover-changed', handleHoverChanged);
+    return () => {
+      ipc?.removeAllListeners('hover-changed');
+    };
+  }, []);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const handleMeetingCommand = (cmd: string) => {
@@ -1184,8 +1267,20 @@ yv.removeEventListener('console-message', handleConsoleMessage);
   ];
 
   return (
-    <div className="fixed top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none z-[999] px-[50px] pb-[50px]">
-      <div className="relative flex items-start justify-center">
+    <div 
+      className={clsx(
+        "fixed pointer-events-none select-none z-[999]",
+        (dockMode === 'top' || dockMode === 'floating') && "top-0 left-1/2 -translate-x-1/2 px-[50px] pb-[50px]",
+        dockMode === 'left' && "top-0 left-0 bottom-0 h-screen flex items-start pt-24",
+        dockMode === 'right' && "top-0 right-0 bottom-0 h-screen flex items-start pt-24"
+      )}
+      style={{
+        paddingTop: dockMode === 'floating' ? `${floatingOffset}px` : undefined
+      }}
+    >
+      <div className={clsx("relative flex justify-center", 
+        (dockMode === 'left' || dockMode === 'right') ? "flex-col items-center" : "items-start"
+      )}>
         {/* Call / Control Bubbles — Left side (Outside Body to prevent hover triggers) */}
         <motion.div 
           style={{ x: islandX }}
@@ -1193,11 +1288,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
         >
           <AnimatePresence>
             {meeting.isActive && !isExpanded && (
-              <div 
-                className="pointer-events-auto"
-                onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
-                onMouseLeave={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', true)}
-              >
+              <div className="pointer-events-auto">
                 <CallBubble 
                   key="call" 
                   app={meeting.app} 
@@ -1211,13 +1302,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
             )}
 
               {(showControlsBubble && !isExpanded) && (
-                <div 
-                  className="pointer-events-auto"
-                  onMouseEnter={() => (window as any).ipcRenderer?.send('set-ignore-mouse-events', false)}
-                  onMouseLeave={() => {
-                    if (!isHovered) (window as any).ipcRenderer?.send('set-ignore-mouse-events', true);
-                  }}
-                >
+                <div className="pointer-events-auto">
                   <ControlCenterBubble 
                     key="controls"
                     wifiActive={wifiActive}
@@ -1248,16 +1333,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
           dragConstraints={{ left: -2000, right: 2000 }}
           dragElastic={0}
           dragMomentum={false}
-          onMouseEnter={() => {
-            setIsHovered(true);
-            (window as any).ipcRenderer?.send('set-ignore-mouse-events', false);
-          }}
-          onMouseLeave={() => {
-            if (!isPinned && !showSettings) {
-              setIsHovered(false);
-              (window as any).ipcRenderer?.send('set-ignore-mouse-events', true);
-            }
-          }}
+
           className="relative pointer-events-auto cursor-default group"
           style={{
             x: islandX,
@@ -1269,8 +1345,12 @@ yv.removeEventListener('console-message', handleConsoleMessage);
             opacity: 1,
             scale: 1,
             y: 0,
-            width: (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (['WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
-            height: showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 600 : (activeView === 'Actualización' ? 450 : (activeView === 'Sistema' ? 300 : 180))) : (superPill ? 42 : 66),
+            width: (dockMode === 'left' || dockMode === 'right')
+              ? (isExpanded ? (showSettings ? 560 : 360) : 44)
+              : (showSettings ? 720 : (isHovered || isPinned) ? (showPreview && activeView === 'Multimedia' ? 840 : (['WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 800 : 680)) : (superPill ? 72 : 440)) + 68,
+            height: (dockMode === 'left' || dockMode === 'right')
+              ? (isExpanded ? 400 : 120)
+              : showSettings ? 480 : (isHovered || isPinned) ? (['Herramientas', 'Llamada', 'WhatsApp', 'YouTube', 'Tienda'].includes(activeView) ? 600 : (activeView === 'Actualización' ? 450 : (activeView === 'Sistema' ? 300 : 180))) : (superPill ? 42 : 66),
           }}
           transition={{ type: 'spring', stiffness: 450, damping: 32, mass: 0.8 }}
         >
@@ -1296,8 +1376,21 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                 const totalW = w + 68;
                 const neck = 42;
 
+                const W = (dockMode === 'left' || dockMode === 'right') ? (isExpanded ? (showSettings ? 560 : 360) : 44) : totalW;
+                const H = (dockMode === 'left' || dockMode === 'right') ? (isExpanded ? 400 : 120) : h;
+
                 // Shared Geometry Logic
-                const islandD = (superPill && !isLarge) 
+                const islandD = (dockMode === 'left')
+                  ? (() => {
+                      const r = isExpanded ? 40 : 25;
+                      return `M 0 0 H ${W - r} A ${r} ${r} 0 0 1 ${W} ${r} V ${H - r} A ${r} ${r} 0 0 1 ${W - r} ${H} H 0 Z`;
+                    })()
+                  : (dockMode === 'right')
+                  ? (() => {
+                      const r = isExpanded ? 40 : 25;
+                      return `M ${W} 0 H ${r} A ${r} ${r} 0 0 0 0 ${r} V ${H - r} A ${r} ${r} 0 0 0 ${r} ${H} H ${W} Z`;
+                    })()
+                  : (superPill && !isLarge) 
                   ? `M 0 0 C ${neck} 0, ${neck} ${h}, ${totalW/2} ${h} S ${totalW-neck} 0, ${totalW} 0 Z`
                   : (() => {
                       const r = isExpanded ? 50 : 33;
@@ -1416,8 +1509,12 @@ yv.removeEventListener('console-message', handleConsoleMessage);
         <div 
           className="absolute overflow-hidden"
           style={{ 
-            left: (superPill && !isExpanded) ? 10 : 34, 
-            right: (superPill && !isExpanded) ? 10 : 34,
+            left: (dockMode === 'left' || dockMode === 'right') 
+              ? 0 
+              : (superPill && !isExpanded) ? 10 : 34, 
+            right: (dockMode === 'left' || dockMode === 'right') 
+              ? 0 
+              : (superPill && !isExpanded) ? 10 : 34,
             top: 0,
             bottom: 0,
           }}
@@ -1425,10 +1522,53 @@ yv.removeEventListener('console-message', handleConsoleMessage);
         {/* ── COLLAPSED PILL ── */}
         <motion.div
           animate={{ opacity: isExpanded ? 0 : 1 }}
-          className={clsx('absolute inset-0 flex items-center', isExpanded && 'pointer-events-none')}
+          className={clsx(
+            'absolute inset-0 flex',
+            (dockMode === 'left' || dockMode === 'right') ? 'flex-col items-center justify-between py-3' : 'items-center',
+            isExpanded && 'pointer-events-none'
+          )}
           onPointerDown={(e) => !isExpanded && dragControls.start(e)}
         >
-          {superPill && !isCollapsing ? (
+          {(dockMode === 'left' || dockMode === 'right') ? (
+            <div className="flex-1 flex flex-col items-center justify-between h-full w-full pointer-events-auto" onPointerDown={(e) => e.stopPropagation()}>
+              {/* Top: Vertical Clock Time Stack */}
+              <div className="flex flex-col items-center font-black leading-none tracking-tight">
+                <span className="text-[11px] text-white/95">{String(currentTime.getHours()).padStart(2, '0')}</span>
+                <span className="text-[11px] text-blue-400/90 mt-0.5">{String(currentTime.getMinutes()).padStart(2, '0')}</span>
+              </div>
+
+              {/* Middle: Music Album Thumbnail or glowing system dot */}
+              <div className="relative w-6 h-6 flex items-center justify-center">
+                {media.isPlaying ? (
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+                    className="w-6 h-6 rounded-full overflow-hidden border border-white/20 shadow-lg cursor-pointer"
+                    onClick={() => openApp('Spotify')}
+                  >
+                    {media.thumbnail ? (
+                      <img src={media.thumbnail} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-blue-600 flex items-center justify-center">
+                        <Music className="w-3 h-3 text-white" />
+                      </div>
+                    )}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_10px_#3b82f6]"
+                  />
+                )}
+              </div>
+
+              {/* Bottom: Temperature Readout */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[8px] font-black text-white/60 tracking-tighter">{weather.temp}°</span>
+              </div>
+            </div>
+          ) : superPill && !isCollapsing ? (
             <div className="flex items-center justify-center w-full h-full" onPointerDown={(e) => e.stopPropagation()}>
               <AnimatePresence mode="wait">
                 {recentNotif && !isExpanded ? (
@@ -1729,7 +1869,11 @@ yv.removeEventListener('console-message', handleConsoleMessage);
         {/* ── EXPANDED PANEL ── */}
         <motion.div
           animate={{ opacity: isExpanded ? 1 : 0 }}
-          className={clsx('absolute inset-0 flex flex-col pt-2.5 px-4 pb-2 z-[4000] pointer-events-auto', !isExpanded && 'pointer-events-none opacity-0')}
+          className={clsx(
+            'absolute inset-0 flex z-[4000] pointer-events-auto',
+            (dockMode === 'left' || dockMode === 'right') ? 'flex-row p-0' : 'flex-col pt-2.5 px-4 pb-2',
+            !isExpanded && 'pointer-events-none opacity-0'
+          )}
           onPointerDown={(e) => {
              // Only start drag if clicking the background, not a button/input/webview/no-drag zone
              const target = e.target as HTMLElement;
@@ -1743,111 +1887,249 @@ yv.removeEventListener('console-message', handleConsoleMessage);
              }
           }}
         >
-          <div className={clsx('relative flex items-center justify-between mb-4 pb-2 border-b shrink-0 z-[5000]', isLightMode ? 'border-black/10' : 'border-white/10')} onPointerDown={e => e.stopPropagation()}>
+          {/* Side Dock Sidebar (Left Dock) */}
+          {dockMode === 'left' && (
             <div 
-              className="flex-1 flex gap-1 items-center overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap pr-20" 
-              style={{ 
-                maskImage: 'linear-gradient(to right, black 85%, transparent 100%)', 
-                WebkitMaskImage: 'linear-gradient(to right, black 85%, transparent 100%)' 
-              }}
+              className={clsx(
+                "w-10 flex flex-col items-center py-2 justify-between shrink-0 pointer-events-auto select-none no-drag border-r",
+                isLightMode ? "border-black/5 bg-black/[0.02]" : "border-white/5 bg-white/[0.02]"
+              )}
               onPointerDown={(e) => e.stopPropagation()}
-              onWheel={(e) => {
-                if (e.deltaY !== 0) {
-                  e.currentTarget.scrollLeft += e.deltaY;
-                }
-              }}
             >
-              {tabOrder.map(v =>
-                visibleTabs.includes(v) && (
-                  <button
-                    key={v}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => setActiveView(v as any)}
+              {/* Upper part: LED CPU monitor + Tab icons */}
+              <div className="flex flex-col items-center gap-1.5 w-full">
+                {/* Mini LED CPU Monitor */}
+                <div className="flex flex-col items-center gap-0.5 mb-1 cursor-default select-none shrink-0" title={`CPU: ${systemInfo.cpu}%`}>
+                  <div className="w-1 h-5 rounded-full bg-zinc-800/85 overflow-hidden relative border border-white/5 shadow-inner">
+                    <div 
+                      className={clsx(
+                        "absolute bottom-0 inset-x-0 transition-all duration-500",
+                        systemInfo.cpu > 70 ? "bg-red-500 shadow-[0_0_6px_#ef4444]" : 
+                        systemInfo.cpu > 40 ? "bg-indigo-500 shadow-[0_0_6px_#6366f1]" : 
+                        "bg-emerald-500 shadow-[0_0_6px_#10b981]"
+                      )}
+                      style={{ height: `${systemInfo.cpu}%` }}
+                    />
+                  </div>
+                  <span className="text-[6px] font-black opacity-30 uppercase tracking-wide">CPU</span>
+                </div>
+
+                {/* Tab Icons Scrollable List */}
+                <div className="flex flex-col items-center gap-1 w-full overflow-y-auto no-scrollbar max-h-[175px] py-1 border-t border-b" style={{ borderColor: isLightMode ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)' }}>
+                  {tabOrder.map(v =>
+                    visibleTabs.includes(v) && (() => {
+                      const iconMap: any = {
+                        'Resumen': <Activity className="w-[13px] h-[13px]" />,
+                        'Sistema': <Cpu className="w-[13px] h-[13px]" />,
+                        'Multimedia': <Volume2 className="w-[13px] h-[13px]" />,
+                        'Notificación': <Bell className="w-[13px] h-[13px]" />,
+                        'Herramientas': <Timer className="w-[13px] h-[13px]" />,
+                        'Llamada': <Video className="w-[13px] h-[13px]" />,
+                        'WhatsApp': <MessageCircle className="w-[13px] h-[13px]" />,
+                        'Actualización': <Download className="w-[13px] h-[13px]" />,
+                        'Tienda': <ShoppingBag className="w-[13px] h-[13px]" />,
+                        'YouTube': (
+                          <svg className="w-[13px] h-[13px]" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                          </svg>
+                        )
+                      };
+                      return (
+                        <button
+                          key={v}
+                          onClick={() => setActiveView(v as any)}
+                          className={clsx(
+                            "w-6 h-6 rounded-md flex items-center justify-center transition-all shrink-0",
+                            activeView === v
+                              ? (isLightMode ? "bg-black text-white" : "bg-white text-black shadow-md")
+                              : "opacity-45 hover:opacity-100 hover:bg-white/5"
+                          )}
+                          title={v}
+                        >
+                          {iconMap[v] || <Activity className="w-[13px] h-[13px]" />}
+                        </button>
+                      );
+                    })()
+                  )}
+                </div>
+              </div>
+
+              {/* Lower part: Settings / Pin buttons + Battery Indicator */}
+              <div className="flex flex-col items-center gap-1 w-full shrink-0">
+                <div className="flex flex-col items-center gap-1 w-full border-t pt-1.5" style={{ borderColor: isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}>
+                  <button 
+                    onClick={() => setIsPinned(!isPinned)}
                     className={clsx(
-                      'px-3 py-1 rounded-full text-[9.5px] font-black flex items-center gap-1 transition-all uppercase whitespace-nowrap shrink-0 pointer-events-auto',
-                      activeView === v
-                        ? (isLightMode ? 'bg-black text-white' : 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.2)]')
-                        : (isLightMode ? 'opacity-30 hover:opacity-60' : 'opacity-30 hover:opacity-70')
+                      "w-6 h-6 rounded-md flex items-center justify-center transition-all",
+                      isPinned ? "text-blue-400" : "opacity-45 hover:opacity-100 hover:bg-white/5"
                     )}
                   >
-                    {v === 'Resumen'      && <Activity className="w-2.5 h-2.5" />}
-                    {v === 'Sistema'      && <Cpu       className="w-2.5 h-2.5" />}
-                    {v === 'Multimedia'   && <Volume2   className="w-2.5 h-2.5" />}
-                    {v === 'Notificación' && <Bell      className="w-2.5 h-2.5" />}
-                    {v === 'Herramientas' && <Timer     className="w-2.5 h-2.5" />}
-                    {v === 'Llamada'      && <Video      className="w-2.5 h-2.5" />}
-                    {v === 'WhatsApp'     && <MessageCircle className="w-2.5 h-2.5" />}
-                    {v === 'Actualización' && <Download className="w-2.5 h-2.5" />}
-                    {v === 'Tienda'        && <ShoppingBag className="w-2.5 h-2.5" />}
-                    {v === 'YouTube'      && (
-                      <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                      </svg>
-                    )}
-                    {(() => {
-                      const keyMap: any = { 'Notificación': 'notificacion', 'WhatsApp': 'whatsapp', 'YouTube': 'youtube', 'Herramientas': 'timer', 'Actualización': 'update', 'Tienda': 'tienda' };
-                      const key = keyMap[v] || v.toLowerCase();
-                      return t[key] || v;
-                    })()}
+                    <Pin className="w-[13px] h-[13px]" />
                   </button>
-                )
-              )}
-            </div>
-            <div className="absolute right-0 top-0 flex items-center gap-2 px-1 bg-gradient-to-l from-zinc-950 via-zinc-950/80 to-transparent pl-8 pointer-events-auto z-[6000]">
-              <button 
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsPinned((p: boolean) => !p);
-                }} 
-                className={clsx('p-1.5 rounded-xl transition-all border pointer-events-auto', isPinned ? 'bg-blue-500 text-white border-blue-400 shadow-lg shadow-blue-500/20' : 'opacity-40 hover:opacity-100 border-transparent hover:bg-white/10')}
-              >
-                <Pin className="w-4 h-4" />
-              </button>
-              <button 
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowSettings((s: boolean) => !s);
-                }} 
-                className="p-1.5 rounded-xl opacity-40 hover:opacity-100 hover:bg-white/10 transition-all pointer-events-auto"
-              >
-                <Settings className="w-4 h-4 hover:rotate-90 transition-transform duration-500" />
-              </button>
-            </div>
-          </div>
+                  <button 
+                    onClick={() => setShowSettings(!showSettings)}
+                    className={clsx(
+                      "w-6 h-6 rounded-md flex items-center justify-center transition-all",
+                      showSettings ? "text-blue-400" : "opacity-45 hover:opacity-100 hover:bg-white/5"
+                    )}
+                  >
+                    <Settings className="w-[13px] h-[13px]" />
+                  </button>
+                </div>
 
-          <div className={clsx("flex-1 overflow-hidden relative transition-all duration-300 pointer-events-auto z-[2000]", showSettings && "opacity-0 pointer-events-none scale-95 blur-sm")}>
+                {/* Glowing Battery Capsule */}
+                <div className="flex flex-col items-center gap-0.5 mt-0.5 pt-1 border-t w-full" style={{ borderColor: isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}>
+                  <div className={clsx(
+                    "w-6 h-2.5 rounded flex items-center px-0.5 border relative overflow-hidden",
+                    isCharging ? "border-emerald-500/50 bg-emerald-500/10" : "border-white/20 bg-white/5"
+                  )} title={`Batería: ${batteryLevel}% ${isCharging ? '(Cargando)' : ''}`}>
+                    {/* Battery level fill */}
+                    <div 
+                      className={clsx(
+                        "h-1 rounded-sm transition-all duration-300",
+                        isCharging ? "bg-emerald-400" : 
+                        batteryLevel < 20 ? "bg-red-500 shadow-[0_0_4px_#ef4444]" : "bg-white"
+                      )}
+                      style={{ width: `${Math.max(10, Math.min(100, batteryLevel))}%` }}
+                    />
+                    {/* Battery tip */}
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[1px] h-1 rounded-l-sm bg-current opacity-30" />
+                    {/* Tiny lightning bolt */}
+                    {isCharging && (
+                      <span className="absolute inset-0 flex items-center justify-center text-[6px] font-black text-emerald-300 drop-shadow">⚡</span>
+                    )}
+                  </div>
+                  <span className="text-[6px] font-black opacity-35 tracking-tighter leading-none">{batteryLevel}%</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Core Content Area */}
+          <div className={clsx(
+            'flex-1 relative flex overflow-hidden min-w-0 min-h-0',
+            (dockMode === 'left' || dockMode === 'right') ? 'flex-col p-5' : 'flex-col'
+          )}>
+            {/* Top Tab Bar (only for Top / Floating modes) */}
+            {!(dockMode === 'left' || dockMode === 'right') && (
+              <div className={clsx('relative flex items-center justify-between mb-4 pb-2 border-b shrink-0 z-[5000]', isLightMode ? 'border-black/10' : 'border-white/10')} onPointerDown={e => e.stopPropagation()}>
+                <div 
+                  className="flex-1 flex gap-1 items-center overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap pr-20" 
+                  style={{ 
+                    maskImage: 'linear-gradient(to right, black 85%, transparent 100%)', 
+                    WebkitMaskImage: 'linear-gradient(to right, black 85%, transparent 100%)' 
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onWheel={(e) => {
+                    if (e.deltaY !== 0) {
+                      e.currentTarget.scrollLeft += e.deltaY;
+                    }
+                  }}
+                >
+                  {tabOrder.map(v =>
+                    visibleTabs.includes(v) && (
+                      <button
+                        key={v}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => setActiveView(v as any)}
+                        className={clsx(
+                          'px-3 py-1 rounded-full text-[9.5px] font-black flex items-center gap-1 transition-all uppercase whitespace-nowrap shrink-0 pointer-events-auto',
+                          activeView === v
+                            ? (isLightMode ? 'bg-black text-white' : 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.2)]')
+                            : (isLightMode ? 'opacity-30 hover:opacity-60' : 'opacity-30 hover:opacity-70')
+                        )}
+                      >
+                        {v === 'Resumen'      && <Activity className="w-2.5 h-2.5" />}
+                        {v === 'Sistema'      && <Cpu       className="w-2.5 h-2.5" />}
+                        {v === 'Multimedia'   && <Volume2   className="w-2.5 h-2.5" />}
+                        {v === 'Notificación' && <Bell      className="w-2.5 h-2.5" />}
+                        {v === 'Herramientas' && <Timer     className="w-2.5 h-2.5" />}
+                        {v === 'Llamada'      && <Video      className="w-2.5 h-2.5" />}
+                        {v === 'WhatsApp'     && <MessageCircle className="w-2.5 h-2.5" />}
+                        {v === 'Actualización' && <Download className="w-2.5 h-2.5" />}
+                        {v === 'Tienda'        && <ShoppingBag className="w-2.5 h-2.5" />}
+                        {v === 'YouTube'      && (
+                          <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                          </svg>
+                        )}
+                        {(() => {
+                          const keyMap: any = { 'Notificación': 'notificacion', 'WhatsApp': 'whatsapp', 'YouTube': 'youtube', 'Herramientas': 'timer', 'Actualización': 'update', 'Tienda': 'tienda' };
+                          const key = keyMap[v] || v.toLowerCase();
+                          return t[key] || v;
+                        })()}
+                      </button>
+                    )
+                  )}
+                </div>
+                <div className="absolute right-0 top-0 flex items-center gap-2 px-1 bg-gradient-to-l from-zinc-950 via-zinc-950/80 to-transparent pl-8 pointer-events-auto z-[6000]">
+                  <button 
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsPinned((p: boolean) => !p);
+                    }} 
+                    className={clsx('p-1.5 rounded-xl transition-all border pointer-events-auto', isPinned ? 'bg-blue-500 text-white border-blue-400 shadow-lg shadow-blue-500/20' : 'opacity-40 hover:opacity-100 border-transparent hover:bg-white/10')}
+                  >
+                    <Pin className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettings((s: boolean) => !s);
+                    }} 
+                    className="p-1.5 rounded-xl opacity-40 hover:opacity-100 hover:bg-white/10 transition-all pointer-events-auto"
+                  >
+                    <Settings className="w-4 h-4 hover:rotate-90 transition-transform duration-500" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className={clsx("flex-1 overflow-hidden relative flex flex-col transition-all duration-300 pointer-events-auto z-[2000]", showSettings && "opacity-0 pointer-events-none scale-95 blur-sm")}>
             {/* RESUMEN — supports 3 different templates (diseños) */}
             {activeView === 'Resumen' && (
               <div className="absolute inset-0 flex items-stretch pt-4">
                 
                 {/* --- DESIGN: MATERIAL YOU 2.0 (ID-Google) --- */}
                 {summaryTemplate === 'ID-Google' && (
-                  <div className="flex-1 flex gap-6 px-8 py-4 bg-indigo-50/10 rounded-[32px] border border-indigo-500/20 shadow-inner">
-                     <div className="flex-1 bg-white/5 backdrop-blur-3xl rounded-[40px] p-6 flex flex-col justify-between border border-white/20 shadow-2xl">
+                  <div className={clsx(
+                    "flex-1 flex bg-indigo-50/10 rounded-[32px] border border-indigo-500/20 shadow-inner",
+                    (dockMode === 'left' || dockMode === 'right') ? "flex-col gap-3 p-3" : "gap-6 px-8 py-4"
+                  )}>
+                     <div className={clsx(
+                       "bg-white/5 backdrop-blur-3xl rounded-[32px] flex flex-col justify-between border border-white/20 shadow-2xl",
+                       (dockMode === 'left' || dockMode === 'right') ? "p-4 gap-3" : "flex-1 p-6"
+                     )}>
                         <div className="flex justify-between items-start">
-                           <div className="w-14 h-14 rounded-3xl bg-indigo-500 flex items-center justify-center shadow-2xl shadow-indigo-500/40">
-                              <Music className="w-7 h-7 text-white" />
+                           <div className="w-12 h-12 rounded-2xl bg-indigo-500 flex items-center justify-center shadow-2xl shadow-indigo-500/40">
+                              <Music className="w-6 h-6 text-white" />
                            </div>
                            <div className="flex flex-col items-end">
-                              <span className="text-[28px] font-black text-indigo-400 leading-none">{weather.temp}°</span>
-                              <span className="text-[10px] font-black uppercase opacity-40 tracking-widest">{weather.city}</span>
+                              <span className="text-[24px] font-black text-indigo-400 leading-none">{weather.temp}°</span>
+                              <span className="text-[9px] font-black uppercase opacity-40 tracking-widest">{weather.city}</span>
                            </div>
                         </div>
                         <div className="flex flex-col">
-                           <span className="text-[22px] font-black truncate max-w-[300px] text-white/90">{media.isPlaying ? media.title : 'Material You'}</span>
-                           <span className="text-[12px] font-black text-indigo-400 uppercase tracking-[0.2em] mt-1">{media.isPlaying ? media.artist : 'Design System'}</span>
+                           <span className="text-[18px] font-black truncate max-w-[260px] text-white/90">{media.isPlaying ? media.title : 'Material You'}</span>
+                           <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mt-1">{media.isPlaying ? media.artist : 'Design System'}</span>
                         </div>
                      </div>
-                     <div className="w-[180px] flex flex-col gap-4">
-                        <div className="flex-1 bg-emerald-500/20 rounded-[32px] flex flex-col items-center justify-center border border-emerald-500/30">
-                           <Zap className="w-8 h-8 text-emerald-400 fill-current mb-2" />
-                           <span className="text-[28px] font-black text-white leading-none">85%</span>
-                           <span className="text-[9px] font-black uppercase opacity-40 tracking-widest mt-1">Efficient</span>
+                     <div className={clsx(
+                       "flex gap-3",
+                       (dockMode === 'left' || dockMode === 'right') ? "w-full h-24" : "w-[180px] flex-col"
+                     )}>
+                        <div className="flex-1 bg-emerald-500/20 rounded-[24px] flex flex-col items-center justify-center border border-emerald-500/30">
+                           <Zap className="w-6 h-6 text-emerald-400 fill-current mb-1" />
+                           <span className="text-[20px] font-black text-white leading-none">85%</span>
+                           <span className="text-[8px] font-black uppercase opacity-40 tracking-widest mt-1">Efficient</span>
                         </div>
-                        <div className="h-20 bg-amber-500/20 rounded-[28px] flex items-center justify-center border border-amber-500/30">
-                           <span className="text-[24px] font-black text-white tracking-tighter">{currentTime.getHours()}:{String(currentTime.getMinutes()).padStart(2, '0')}</span>
+                        <div className={clsx(
+                          "bg-amber-500/20 rounded-[24px] flex items-center justify-center border border-amber-500/30",
+                          (dockMode === 'left' || dockMode === 'right') ? "w-28" : "h-20"
+                        )}>
+                           <span className="text-[20px] font-black text-white tracking-tighter">{currentTime.getHours()}:{String(currentTime.getMinutes()).padStart(2, '0')}</span>
                         </div>
                      </div>
                   </div>
@@ -1855,35 +2137,50 @@ yv.removeEventListener('console-message', handleConsoleMessage);
 
                 {/* --- DESIGN: IOS GLASS MAX (ID-iOS) --- */}
                 {summaryTemplate === 'ID-iOS' && (
-                  <div className="flex-1 p-6 relative overflow-hidden flex flex-col rounded-[32px]">
+                  <div className={clsx(
+                    "flex-1 relative overflow-hidden flex flex-col rounded-[32px]",
+                    (dockMode === 'left' || dockMode === 'right') ? "p-3" : "p-6"
+                  )}>
                      <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-blue-500/30 blur-[120px] rounded-full animate-pulse" />
                      <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-purple-500/30 blur-[120px] rounded-full" />
-                     <div className="relative z-10 flex-1 flex gap-6">
-                        <div className="flex-1 bg-white/5 backdrop-blur-3xl rounded-[40px] border border-white/10 shadow-2xl p-8 flex flex-col justify-between">
-                           <div className="flex items-center gap-6">
-                              <div className="w-20 h-20 rounded-[28px] bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden shadow-2xl">
-                                 {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-8 h-8 text-white/20" />}
+                     <div className={clsx(
+                       "relative z-10 flex-1 flex",
+                       (dockMode === 'left' || dockMode === 'right') ? "flex-col gap-3" : "gap-6"
+                     )}>
+                        <div className={clsx(
+                          "bg-white/5 backdrop-blur-3xl rounded-[32px] border border-white/10 shadow-2xl flex flex-col justify-between",
+                          (dockMode === 'left' || dockMode === 'right') ? "p-4 gap-4" : "flex-1 p-8"
+                        )}>
+                           <div className="flex items-center gap-4">
+                              <div className="w-14 h-14 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden shadow-2xl shrink-0">
+                                 {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover" /> : <Music className="w-6 h-6 text-white/20" />}
                               </div>
                               <div className="flex flex-col min-w-0">
-                                 <span className="text-[24px] font-black text-white truncate">{media.isPlaying ? media.title : 'Live Island'}</span>
-                                 <span className="text-[12px] font-black text-white/30 uppercase tracking-[0.3em] mt-1">{media.isPlaying ? media.artist : 'Design OS'}</span>
+                                 <span className="text-[18px] font-black text-white truncate">{media.isPlaying ? media.title : 'Live Island'}</span>
+                                 <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] mt-1">{media.isPlaying ? media.artist : 'Design OS'}</span>
                               </div>
                            </div>
-                           <div className="flex items-center gap-4">
-                              <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+                           <div className="flex items-center gap-3">
+                              <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
                                  <motion.div animate={{ width: '60%' }} className="h-full bg-white shadow-[0_0_15px_white]" />
                               </div>
-                              <span className="text-[10px] font-black text-white/40 tabular-nums">2:14 / 4:32</span>
+                              <span className="text-[8px] font-black text-white/40 tabular-nums">2:14 / 4:32</span>
                            </div>
                         </div>
-                        <div className="w-[160px] flex flex-col gap-6">
-                           <div className="flex-1 bg-white/5 backdrop-blur-3xl rounded-[36px] border border-white/10 flex flex-col items-center justify-center">
-                              <Cloud className="w-10 h-10 text-white mb-2" />
-                              <span className="text-[32px] font-black text-white leading-none">22°</span>
-                              <span className="text-[9px] font-black uppercase opacity-40 tracking-widest mt-1">Mostly Clear</span>
+                        <div className={clsx(
+                          "flex gap-3",
+                          (dockMode === 'left' || dockMode === 'right') ? "w-full h-24" : "w-[160px] flex-col"
+                        )}>
+                           <div className="flex-1 bg-white/5 backdrop-blur-3xl rounded-[24px] border border-white/10 flex flex-col items-center justify-center">
+                              <Cloud className="w-6 h-6 text-white mb-1" />
+                              <span className="text-[22px] font-black text-white leading-none">22°</span>
+                              <span className="text-[8px] font-black uppercase opacity-40 tracking-widest mt-1">Mostly Clear</span>
                            </div>
-                           <div className="h-16 bg-white rounded-[24px] flex items-center justify-center shadow-2xl">
-                              <span className="text-[22px] font-black text-black tracking-tighter">9:41 AM</span>
+                           <div className={clsx(
+                             "bg-white rounded-[20px] flex items-center justify-center shadow-2xl",
+                             (dockMode === 'left' || dockMode === 'right') ? "w-28" : "h-16"
+                           )}>
+                              <span className="text-[16px] font-black text-black tracking-tighter">9:41 AM</span>
                            </div>
                         </div>
                      </div>
@@ -1892,40 +2189,52 @@ yv.removeEventListener('console-message', handleConsoleMessage);
 
                 {/* --- DESIGN: OBSIDIAN DECK (ID-Dashboard) --- */}
                 {summaryTemplate === 'ID-Dashboard' && (
-                  <div className="flex-1 flex gap-6 px-8 py-4 bg-black rounded-[32px] border border-white/5">
-                     <div className="flex-1 bg-zinc-900/50 rounded-[28px] border border-white/5 p-6 flex flex-col">
-                        <div className="flex justify-between items-center mb-6">
-                           <span className="text-[10px] font-black uppercase tracking-[0.5em] text-white/20">System Deck</span>
+                  <div className={clsx(
+                    "flex-1 flex bg-black rounded-[32px] border border-white/5",
+                    (dockMode === 'left' || dockMode === 'right') ? "flex-col gap-3 p-3" : "gap-6 px-8 py-4"
+                  )}>
+                     <div className={clsx(
+                       "bg-zinc-900/50 rounded-[24px] border border-white/5 flex flex-col",
+                       (dockMode === 'left' || dockMode === 'right') ? "p-4 gap-4" : "flex-1 p-6"
+                     )}>
+                        <div className="flex justify-between items-center">
+                           <span className="text-[9px] font-black uppercase tracking-[0.5em] text-white/20">System Deck</span>
                            <div className="flex gap-1">
                               {[1,2,3].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-blue-500" />)}
                            </div>
                         </div>
-                        <div className="flex-1 flex items-end gap-1 mb-6">
+                        <div className="flex-1 flex items-end gap-1 mb-4 h-16 min-h-[60px]">
                            {[40, 70, 30, 90, 60, 45, 80, 55, 100, 75, 40, 60].map((h, i) => (
                               <motion.div key={i} initial={{ height: 0 }} animate={{ height: `${h}%` }} className="flex-1 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-sm shadow-[0_0_10px_rgba(59,130,246,0.3)]" />
                            ))}
                         </div>
                         <div className="flex justify-between items-center">
                            <div className="flex flex-col">
-                              <span className="text-[24px] font-black text-white leading-none">12.8%</span>
-                              <span className="text-[8px] font-black text-white/20 uppercase tracking-widest mt-1">CPU Load Active</span>
+                              <span className="text-[18px] font-black text-white leading-none">12.8%</span>
+                              <span className="text-[8px] font-black text-white/20 uppercase tracking-widest mt-1">CPU Load</span>
                            </div>
-                           <div className="flex items-center gap-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20">
-                              <Activity className="w-3 h-3 text-blue-400" />
-                              <span className="text-[9px] font-black text-blue-400">Stable</span>
+                           <div className="flex items-center gap-1.5 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
+                              <Activity className="w-2.5 h-2.5 text-blue-400" />
+                              <span className="text-[8px] font-black text-blue-400">Stable</span>
                            </div>
                         </div>
                      </div>
-                     <div className="w-[200px] flex flex-col gap-4">
-                        <div className="flex-1 bg-zinc-900 rounded-[24px] border border-white/5 flex flex-col items-center justify-center">
-                           <div className="w-16 h-16 rounded-full border-[6px] border-emerald-500/20 flex items-center justify-center relative">
+                     <div className={clsx(
+                       "flex gap-3",
+                       (dockMode === 'left' || dockMode === 'right') ? "w-full h-24" : "w-[200px] flex-col"
+                     )}>
+                        <div className="flex-1 bg-zinc-900 rounded-[20px] border border-white/5 flex flex-col items-center justify-center py-2">
+                           <div className="w-10 h-10 rounded-full border-[4px] border-emerald-500/20 flex items-center justify-center relative">
                               <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="#10b981" strokeWidth="8" strokeDasharray="282" strokeDashoffset={282*0.15} /></svg>
-                              <Zap className="w-6 h-6 text-emerald-500 fill-current" />
+                              <Zap className="w-4 h-4 text-emerald-500 fill-current" />
                            </div>
-                           <span className="text-[18px] font-black text-white mt-2">85% Power</span>
+                           <span className="text-[12px] font-black text-white mt-1.5">85% Power</span>
                         </div>
-                        <div className="h-16 bg-blue-600 rounded-[20px] flex items-center justify-center shadow-[0_10px_25px_rgba(59,130,246,0.3)]">
-                           <span className="text-[20px] font-black text-white tracking-widest uppercase">Stealth</span>
+                        <div className={clsx(
+                          "bg-blue-600 rounded-[18px] flex items-center justify-center shadow-[0_10px_25px_rgba(59,130,246,0.3)]",
+                          (dockMode === 'left' || dockMode === 'right') ? "w-28" : "h-16"
+                        )}>
+                           <span className="text-[14px] font-black text-white tracking-widest uppercase">Stealth</span>
                         </div>
                      </div>
                   </div>
@@ -2105,34 +2414,45 @@ yv.removeEventListener('console-message', handleConsoleMessage);
 
                 {/* --- DESIGN: ORIGINAL PRO (Moderno) --- */}
                 {summaryTemplate === 'Moderno' && (
-                  <div className="flex-1 flex gap-6 px-8 py-4 bg-white/5 rounded-[32px] border border-white/5">
-                    <div className="flex items-center gap-6 px-4 shrink-0" style={{ width: 340 }}>
-                      <div className="w-[120px] h-[120px] rounded-[36px] overflow-hidden shrink-0 border border-white/10 bg-zinc-900 relative shadow-2xl group cursor-pointer" onClick={() => openApp('Spotify')}>
-                        {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /> : <Music className="w-10 h-10 m-auto opacity-10" />}
-                        <div className="absolute -bottom-1 -right-1 bg-[#fc3c44] w-10 h-10 rounded-full flex items-center justify-center border-4 border-black shadow-2xl"><Music className="w-4 h-4 text-white" /></div>
+                  <div className={clsx(
+                    "flex-1 flex bg-white/5 rounded-[32px] border border-white/5",
+                    (dockMode === 'left' || dockMode === 'right') ? "flex-col p-3 gap-3" : "gap-6 px-8 py-4"
+                  )}>
+                    <div 
+                      className={clsx(
+                        "flex items-center gap-4 shrink-0",
+                        (dockMode === 'left' || dockMode === 'right') ? "w-full" : "w-[340px]"
+                      )}
+                    >
+                      <div className="w-[80px] h-[80px] rounded-[24px] overflow-hidden shrink-0 border border-white/10 bg-zinc-900 relative shadow-2xl group cursor-pointer" onClick={() => openApp('Spotify')}>
+                        {media.thumbnail ? <img src={media.thumbnail} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /> : <Music className="w-8 h-8 m-auto opacity-10" />}
+                        <div className="absolute -bottom-1 -right-1 bg-[#fc3c44] w-7 h-7 rounded-full flex items-center justify-center border-4 border-black shadow-2xl"><Music className="w-3 h-3 text-white" /></div>
                       </div>
-                      <div className="flex flex-col min-w-0 flex-1 text-left gap-1">
-                        <span className="text-[18px] font-black truncate tracking-tight leading-tight text-white/90">{media.isPlaying ? media.title : 'Ready to Play'}</span>
-                        <span className="text-[12px] font-black truncate uppercase text-blue-400/80 tracking-widest">{media.isPlaying ? media.artist : 'Select a Source'}</span>
-                        <div className="flex items-center gap-4 mt-4">
-                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'prev')} className="opacity-40 hover:opacity-100 hover:scale-125 transition-all"><SkipBack className="w-5 h-5" /></button>
-                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'playPause')} className="w-12 h-12 bg-white text-black rounded-full flex items-center justify-center hover:scale-110 active:scale-90 transition-all shadow-xl">
-                            {media.isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-1" />}
+                      <div className="flex flex-col min-w-0 flex-1 text-left gap-0.5">
+                        <span className="text-[15px] font-black truncate tracking-tight leading-tight text-white/90">{media.isPlaying ? media.title : 'Ready to Play'}</span>
+                        <span className="text-[10px] font-black truncate uppercase text-blue-400/80 tracking-widest">{media.isPlaying ? media.artist : 'Select a Source'}</span>
+                        <div className="flex items-center gap-3 mt-2">
+                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'prev')} className="opacity-40 hover:opacity-100 hover:scale-125 transition-all"><SkipBack className="w-4 h-4" /></button>
+                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'playPause')} className="w-9 h-9 bg-white text-black rounded-full flex items-center justify-center hover:scale-110 active:scale-90 transition-all shadow-xl">
+                            {media.isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
                           </button>
-                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'next')} className="opacity-40 hover:opacity-100 hover:scale-125 transition-all"><SkipForward className="w-5 h-5" /></button>
+                          <button onClick={() => (window as any).ipcRenderer?.send('media-command', 'next')} className="opacity-40 hover:opacity-100 hover:scale-125 transition-all"><SkipForward className="w-4 h-4" /></button>
                         </div>
                       </div>
                     </div>
-                    <div className="flex-1 flex flex-col justify-center px-6 border-l border-white/5">
-                       <div className="flex justify-between items-baseline mb-4">
-                          <span className="text-[24px] font-black tracking-tighter text-white/90">{currentTime.toLocaleString(lang, { month: 'short', day: 'numeric' })}</span>
-                          <span className="text-[10px] font-black uppercase text-blue-500 tracking-[0.2em]">Agenda</span>
+                    <div className={clsx(
+                      "flex-1 flex flex-col justify-center",
+                      (dockMode === 'left' || dockMode === 'right') ? "border-t border-white/5 pt-3 px-1" : "px-6 border-l border-white/5"
+                    )}>
+                       <div className="flex justify-between items-baseline mb-2">
+                          <span className="text-[16px] font-black tracking-tighter text-white/90">{currentTime.toLocaleString(lang, { month: 'short', day: 'numeric' })}</span>
+                          <span className="text-[9px] font-black uppercase text-blue-500 tracking-[0.2em]">Agenda</span>
                        </div>
-                       <div className="space-y-2">
-                          {events.slice(0,2).map((ev, i) => (
-                             <div key={i} className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                                <div className={clsx("w-2 h-2 rounded-full", ev.type === 'video' ? 'bg-blue-400' : 'bg-emerald-400')} />
-                                <span className="text-[10px] font-black truncate flex-1 text-white/80">{ev.title}</span>
+                       <div className="space-y-1.5">
+                          {events.slice(0, 2).map((ev, i) => (
+                             <div key={i} className="flex items-center gap-2 bg-white/5 p-2 rounded-xl border border-white/5">
+                                <div className={clsx("w-1.5 h-1.5 rounded-full shrink-0", ev.type === 'video' ? 'bg-blue-400' : 'bg-emerald-400')} />
+                                <span className="text-[9px] font-black truncate flex-1 text-white/80">{ev.title}</span>
                              </div>
                           ))}
                        </div>
@@ -2298,114 +2618,244 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                     <span className="text-[8px] font-black uppercase tracking-widest">{btActive ? 'BT' : 'Off'}</span>
                   </button>
                 </div>
+
+                {/* DOCK POSITION CONFIG (Sistema Tab Sync) */}
+                <div className="flex flex-col gap-1.5 mt-1.5 no-drag pointer-events-auto">
+                  <span className="text-[8px] font-black opacity-35 tracking-widest uppercase">Alineación de la Isla</span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {(['top', 'floating', 'left', 'right'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        onClick={(e) => { e.stopPropagation(); setDockMode(mode); }}
+                        className="py-2 rounded-xl border font-black text-[8px] uppercase tracking-tighter transition-all"
+                        style={{
+                          background: dockMode === mode ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.03)',
+                          borderColor: dockMode === mode ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.06)',
+                          color: dockMode === mode ? '#60a5fa' : 'inherit',
+                          opacity: dockMode === mode ? 1 : 0.6,
+                        }}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
             {/* MULTIMEDIA — album art left + controls right */}
             {activeView === 'Multimedia' && (
-              <div className="absolute inset-0 flex items-stretch">
-                {/* Columna Izquierda: Arte / Vista Previa en Vivo */}
-                <div 
-                  className="flex flex-col items-center justify-center px-6 border-r gap-2 transition-all duration-500" 
-                  style={{ borderColor: 'rgba(255,255,255,0.06)', minWidth: showPreview ? 320 : 140 }}
-                >
-                  <motion.div 
-                    layout
-                    className={clsx(
-                      "rounded-[22px] overflow-hidden border border-white/10 bg-zinc-950 relative shadow-2xl cursor-pointer group",
-                      showPreview ? "w-64 h-36" : "w-20 h-20"
-                    )}
-                    onClick={() => {
-                      if (showPreview) {
-                        const app = media.id === 'system' ? 'Chrome' : media.id;
-                        openApp(app);
-                      } else {
-                        setShowPreview(true);
-                      }
-                    }}
-                  >
-                    {showPreview && stream ? (
-                      <video 
-                        ref={videoRef} 
-                        autoPlay 
-                        playsInline 
-                        muted 
-                        className="w-full h-full object-contain bg-black" 
-                      />
-                    ) : (
-                      <>
-                        {media.thumbnail ? (
-                          <img src={media.thumbnail} className="w-full h-full object-cover" />
+              <div className={clsx(
+                "absolute inset-0 flex",
+                isSideDock ? "flex-col p-4 justify-between" : "items-stretch"
+              )}>
+                {isSideDock ? (
+                  // RESPONSIVE SIDE DOCK MULTIMEDIA LAYOUT
+                  <div className="flex-1 flex flex-col justify-between h-full no-drag" onPointerDown={(e) => e.stopPropagation()}>
+                    {/* Top: Album Art / Video Preview */}
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <motion.div 
+                        layout
+                        className={clsx(
+                          "rounded-[22px] overflow-hidden border border-white/10 bg-zinc-950 relative shadow-2xl cursor-pointer group",
+                          showPreview ? "w-full aspect-video max-h-[140px]" : "w-28 h-28"
+                        )}
+                        onClick={() => {
+                          if (showPreview) {
+                            const app = media.id === 'system' ? 'Chrome' : media.id;
+                            openApp(app);
+                          } else {
+                            setShowPreview(true);
+                          }
+                        }}
+                      >
+                        {showPreview && stream ? (
+                          <video 
+                            ref={videoRef} 
+                            autoPlay 
+                            playsInline 
+                            muted 
+                            className="w-full h-full object-contain bg-black" 
+                          />
                         ) : (
-                          <div className="flex flex-col items-center justify-center w-full h-full opacity-10">
-                            <Music className="w-8 h-8" />
+                          <>
+                            {media.thumbnail ? (
+                              <img src={media.thumbnail} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="flex flex-col items-center justify-center w-full h-full opacity-10">
+                                <Music className="w-8 h-8" />
+                              </div>
+                            )}
+                          </>
+                        )}
+                        
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setShowPreview(!showPreview); }}
+                          className={clsx(
+                            "absolute top-2 right-2 p-1.5 rounded-lg transition-all backdrop-blur-md",
+                            showPreview ? "bg-red-500/80 text-white" : "bg-black/40 text-white/60 opacity-0 group-hover:opacity-100"
+                          )}
+                        >
+                          {showPreview ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
+                        </button>
+                        
+                        {showPreview && (
+                          <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/95 to-transparent flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+                            <span className="text-[8px] font-black uppercase text-white tracking-widest">En Vivo</span>
                           </div>
                         )}
-                      </>
-                    )}
-                    
-                    {/* Botón de alternancia de vista previa */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setShowPreview(!showPreview); }}
-                      className={clsx(
-                        "absolute top-2 right-2 p-1.5 rounded-lg transition-all backdrop-blur-md",
-                        showPreview ? "bg-red-500/80 text-white" : "bg-black/40 text-white/60 opacity-0 group-hover:opacity-100"
-                      )}
-                    >
-                      {showPreview ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
-                    </button>
-                    
-                    {showPreview && (
-                      <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/95 to-transparent flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-                        <span className="text-[8px] font-black uppercase text-white tracking-widest">En Vivo</span>
-                      </div>
-                    )}
-                  </motion.div>
-                  {!showPreview && <SoundVisualizer isPlaying={media.isPlaying} bars={visualizerBars} />}
-                </div>
+                      </motion.div>
+                      {!showPreview && <SoundVisualizer isPlaying={media.isPlaying} bars={visualizerBars} />}
+                    </div>
 
-                {/* Centro: Info de pista + Controles principales */}
-                <div className="flex-1 flex flex-col items-start justify-center px-8 gap-1.5 min-w-0">
-                  <motion.div layout className="flex flex-col w-full text-left">
-                    <span className="text-[16px] font-black truncate w-full tracking-tighter leading-none">{media.title}</span>
-                    <span className="text-[11px] font-bold truncate w-full mt-1" style={{ opacity: 0.4 }}>{media.artist}</span>
-                  </motion.div>
-                  
-                  <div className="flex items-center gap-6 mt-3">
-                    <button 
-                      onClick={() => (window as any).ipcRenderer?.send('media-command', 'prev')}      
-                      className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
-                    >
-                      <SkipBack className="w-5 h-5" />
-                    </button>
-                    <button      
-                      onClick={() => (window as any).ipcRenderer?.send('media-command', 'playPause')} 
-                      className="w-12 h-12 rounded-full flex items-center justify-center border outline-none hover:scale-105 active:scale-95 transition-all shadow-xl bg-white/5 border-white/10"
-                    >
-                      {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
-                    </button>
-                    <button 
-                      onClick={() => (window as any).ipcRenderer?.send('media-command', 'next')}      
-                      className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
-                    >
-                      <SkipForward className="w-5 h-5" />
-                    </button>
+                    {/* Middle: Track info & media controls */}
+                    <div className="flex flex-col items-center justify-center gap-2 text-center my-2">
+                      <div className="flex flex-col w-full text-center px-2">
+                        <span className="text-[14px] font-black truncate w-full tracking-tighter leading-none">{media.title || 'Ningún medio'}</span>
+                        <span className="text-[10px] font-bold truncate w-full mt-1 opacity-40">{media.artist || 'Desconocido'}</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-6 mt-1">
+                        <button 
+                          onClick={() => (window as any).ipcRenderer?.send('media-command', 'prev')}      
+                          className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
+                        >
+                          <SkipBack className="w-4.5 h-4.5" />
+                        </button>
+                        <button      
+                          onClick={() => (window as any).ipcRenderer?.send('media-command', 'playPause')} 
+                          className="w-10 h-10 rounded-full flex items-center justify-center border outline-none hover:scale-105 active:scale-95 transition-all shadow-xl bg-white/5 border-white/10"
+                        >
+                          {media.isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                        </button>
+                        <button 
+                          onClick={() => (window as any).ipcRenderer?.send('media-command', 'next')}      
+                          className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
+                        >
+                          <SkipForward className="w-4.5 h-4.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Bottom: Horizontal volume slider */}
+                    <div className="flex items-center gap-3 px-4 py-2 bg-white/5 border border-white/5 rounded-2xl w-full">
+                      <Volume2 className="w-4 h-4 opacity-50 shrink-0" />
+                      <input type="range" min={0} max={100} value={volume}
+                        onChange={e => setVol(Number(e.target.value))}
+                        className="flex-1 h-1 rounded-full outline-none cursor-pointer"
+                        style={{ accentColor: '#3b82f6' }}
+                      />
+                      <span className="text-[9px] font-black tabular-nums opacity-50 shrink-0">{volume}%</span>
+                    </div>
                   </div>
-                </div>
-                {/* Right: volume slider column */}
-                <div 
-                  className="flex flex-col items-center justify-center px-4 gap-2 no-drag" 
-                  style={{ minWidth: 70 }} 
-                >
-                  <Volume2 className="w-4 h-4" style={{ opacity: 0.35 }} />
-                  <input type="range" min={0} max={100} value={volume}
-                    onChange={e => setVol(Number(e.target.value))}
-                    className="h-1 rounded-full outline-none cursor-pointer"
-                    style={{ accentColor: '#3b82f6', writingMode: 'vertical-lr', direction: 'rtl', height: 80, width: 'auto' }}
-                  />
-                  <span className="text-[9px] font-black tabular-nums" style={{ opacity: 0.35 }}>{volume}%</span>
-                </div>
+                ) : (
+                  // ORIGINAL FLOATING/TOP DOCK LAYOUT
+                  <>
+                    {/* Columna Izquierda: Arte / Vista Previa en Vivo */}
+                    <div 
+                      className="flex flex-col items-center justify-center px-6 border-r gap-2 transition-all duration-500" 
+                      style={{ borderColor: 'rgba(255,255,255,0.06)', minWidth: showPreview ? 320 : 140 }}
+                    >
+                      <motion.div 
+                        layout
+                        className={clsx(
+                          "rounded-[22px] overflow-hidden border border-white/10 bg-zinc-950 relative shadow-2xl cursor-pointer group",
+                          showPreview ? "w-64 h-36" : "w-20 h-20"
+                        )}
+                        onClick={() => {
+                          if (showPreview) {
+                            const app = media.id === 'system' ? 'Chrome' : media.id;
+                            openApp(app);
+                          } else {
+                            setShowPreview(true);
+                          }
+                        }}
+                      >
+                        {showPreview && stream ? (
+                          <video 
+                            ref={videoRef} 
+                            autoPlay 
+                            playsInline 
+                            muted 
+                            className="w-full h-full object-contain bg-black" 
+                          />
+                        ) : (
+                          <>
+                            {media.thumbnail ? (
+                              <img src={media.thumbnail} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="flex flex-col items-center justify-center w-full h-full opacity-10">
+                                <Music className="w-8 h-8" />
+                              </div>
+                            )}
+                          </>
+                        )}
+                        
+                        {/* Botón de alternancia de vista previa */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setShowPreview(!showPreview); }}
+                          className={clsx(
+                            "absolute top-2 right-2 p-1.5 rounded-lg transition-all backdrop-blur-md",
+                            showPreview ? "bg-red-500/80 text-white" : "bg-black/40 text-white/60 opacity-0 group-hover:opacity-100"
+                          )}
+                        >
+                          {showPreview ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
+                        </button>
+                        
+                        {showPreview && (
+                          <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/95 to-transparent flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+                            <span className="text-[8px] font-black uppercase text-white tracking-widest">En Vivo</span>
+                          </div>
+                        )}
+                      </motion.div>
+                      {!showPreview && <SoundVisualizer isPlaying={media.isPlaying} bars={visualizerBars} />}
+                    </div>
+
+                    {/* Centro: Info de pista + Controles principales */}
+                    <div className="flex-1 flex flex-col items-start justify-center px-8 gap-1.5 min-w-0">
+                      <motion.div layout className="flex flex-col w-full text-left">
+                        <span className="text-[16px] font-black truncate w-full tracking-tighter leading-none">{media.title}</span>
+                        <span className="text-[11px] font-bold truncate w-full mt-1" style={{ opacity: 0.4 }}>{media.artist}</span>
+                      </motion.div>
+                      
+                      <div className="flex items-center gap-6 mt-3">
+                        <button 
+                          onClick={() => (window as any).ipcRenderer?.send('media-command', 'prev')}      
+                          className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
+                        >
+                          <SkipBack className="w-5 h-5" />
+                        </button>
+                        <button      
+                          onClick={() => (window as any).ipcRenderer?.send('media-command', 'playPause')} 
+                          className="w-12 h-12 rounded-full flex items-center justify-center border outline-none hover:scale-105 active:scale-95 transition-all shadow-xl bg-white/5 border-white/10"
+                        >
+                          {media.isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+                        </button>
+                        <button 
+                          onClick={() => (window as any).ipcRenderer?.send('media-command', 'next')}      
+                          className="hover:scale-125 transition-all opacity-40 hover:opacity-100"
+                        >
+                          <SkipForward className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                    {/* Right: volume slider column */}
+                    <div 
+                      className="flex flex-col items-center justify-center px-4 gap-2 no-drag" 
+                      style={{ minWidth: 70 }} 
+                    >
+                      <Volume2 className="w-4 h-4" style={{ opacity: 0.35 }} />
+                      <input type="range" min={0} max={100} value={volume}
+                        onChange={e => setVol(Number(e.target.value))}
+                        className="h-1 rounded-full outline-none cursor-pointer"
+                        style={{ accentColor: '#3b82f6', writingMode: 'vertical-lr', direction: 'rtl', height: 80, width: 'auto' }}
+                      />
+                      <span className="text-[9px] font-black tabular-nums" style={{ opacity: 0.35 }}>{volume}%</span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -2509,7 +2959,10 @@ yv.removeEventListener('console-message', handleConsoleMessage);
             {/* HERRAMIENTAS */}
             {activeView === 'Herramientas' && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="relative w-[450px] h-[450px] flex items-center justify-center">
+                <div className={clsx(
+                  "relative flex items-center justify-center transition-all duration-300",
+                  (dockMode === 'left' || dockMode === 'right') ? "w-[280px] h-[280px] scale-[0.68]" : "w-[450px] h-[450px]"
+                )}>
                   
                   {/* Unified Triple Timer System */}
                   <div className="no-drag">
@@ -2676,6 +3129,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                   auras={storeAuras}
                   currentT={summaryTemplate}
                   currentA={auraColor}
+                  dockMode={dockMode}
                   onApplyT={(id: any) => {
                     setSummaryTemplate(id);
                     localStorage.setItem('summaryTemplate', id);
@@ -2879,6 +3333,125 @@ yv.removeEventListener('console-message', handleConsoleMessage);
               </motion.div>
             )}
           </div>
+          </div>
+
+          {/* Side Dock Sidebar (Right Dock) */}
+          {dockMode === 'right' && (
+            <div 
+              className={clsx(
+                "w-10 flex flex-col items-center py-2 justify-between shrink-0 pointer-events-auto select-none no-drag border-l",
+                isLightMode ? "border-black/5 bg-black/[0.02]" : "border-white/5 bg-white/[0.02]"
+              )}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {/* Upper part: LED CPU monitor + Tab icons */}
+              <div className="flex flex-col items-center gap-1.5 w-full">
+                {/* Mini LED CPU Monitor */}
+                <div className="flex flex-col items-center gap-0.5 mb-1 cursor-default select-none shrink-0" title={`CPU: ${systemInfo.cpu}%`}>
+                  <div className="w-1 h-5 rounded-full bg-zinc-800/85 overflow-hidden relative border border-white/5 shadow-inner">
+                    <div 
+                      className={clsx(
+                        "absolute bottom-0 inset-x-0 transition-all duration-500",
+                        systemInfo.cpu > 70 ? "bg-red-500 shadow-[0_0_6px_#ef4444]" : 
+                        systemInfo.cpu > 40 ? "bg-indigo-500 shadow-[0_0_6px_#6366f1]" : 
+                        "bg-emerald-500 shadow-[0_0_6px_#10b981]"
+                      )}
+                      style={{ height: `${systemInfo.cpu}%` }}
+                    />
+                  </div>
+                  <span className="text-[6px] font-black opacity-30 uppercase tracking-wide">CPU</span>
+                </div>
+
+                {/* Tab Icons Scrollable List */}
+                <div className="flex flex-col items-center gap-1 w-full overflow-y-auto no-scrollbar max-h-[175px] py-1 border-t border-b" style={{ borderColor: isLightMode ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)' }}>
+                  {tabOrder.map(v =>
+                    visibleTabs.includes(v) && (() => {
+                      const iconMap: any = {
+                        'Resumen': <Activity className="w-[13px] h-[13px]" />,
+                        'Sistema': <Cpu className="w-[13px] h-[13px]" />,
+                        'Multimedia': <Volume2 className="w-[13px] h-[13px]" />,
+                        'Notificación': <Bell className="w-[13px] h-[13px]" />,
+                        'Herramientas': <Timer className="w-[13px] h-[13px]" />,
+                        'Llamada': <Video className="w-[13px] h-[13px]" />,
+                        'WhatsApp': <MessageCircle className="w-[13px] h-[13px]" />,
+                        'Actualización': <Download className="w-[13px] h-[13px]" />,
+                        'Tienda': <ShoppingBag className="w-[13px] h-[13px]" />,
+                        'YouTube': (
+                          <svg className="w-[13px] h-[13px]" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                          </svg>
+                        )
+                      };
+                      return (
+                        <button
+                          key={v}
+                          onClick={() => setActiveView(v as any)}
+                          className={clsx(
+                            "w-6 h-6 rounded-md flex items-center justify-center transition-all shrink-0",
+                            activeView === v
+                              ? (isLightMode ? "bg-black text-white" : "bg-white text-black shadow-md")
+                              : "opacity-45 hover:opacity-100 hover:bg-white/5"
+                          )}
+                          title={v}
+                        >
+                          {iconMap[v] || <Activity className="w-[13px] h-[13px]" />}
+                        </button>
+                      );
+                    })()
+                  )}
+                </div>
+              </div>
+
+              {/* Lower part: Settings / Pin buttons + Battery Indicator */}
+              <div className="flex flex-col items-center gap-1 w-full shrink-0">
+                <div className="flex flex-col items-center gap-1 w-full border-t pt-1.5" style={{ borderColor: isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}>
+                  <button 
+                    onClick={() => setIsPinned(!isPinned)}
+                    className={clsx(
+                      "w-6 h-6 rounded-md flex items-center justify-center transition-all",
+                      isPinned ? "text-blue-400" : "opacity-45 hover:opacity-100 hover:bg-white/5"
+                    )}
+                  >
+                    <Pin className="w-[13px] h-[13px]" />
+                  </button>
+                  <button 
+                    onClick={() => setShowSettings(!showSettings)}
+                    className={clsx(
+                      "w-6 h-6 rounded-md flex items-center justify-center transition-all",
+                      showSettings ? "text-blue-400" : "opacity-45 hover:opacity-100 hover:bg-white/5"
+                    )}
+                  >
+                    <Settings className="w-[13px] h-[13px]" />
+                  </button>
+                </div>
+
+                {/* Glowing Battery Capsule */}
+                <div className="flex flex-col items-center gap-0.5 mt-0.5 pt-1 border-t w-full" style={{ borderColor: isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)' }}>
+                  <div className={clsx(
+                    "w-6 h-2.5 rounded flex items-center px-0.5 border relative overflow-hidden",
+                    isCharging ? "border-emerald-500/50 bg-emerald-500/10" : "border-white/20 bg-white/5"
+                  )} title={`Batería: ${batteryLevel}% ${isCharging ? '(Cargando)' : ''}`}>
+                    {/* Battery level fill */}
+                    <div 
+                      className={clsx(
+                        "h-1 rounded-sm transition-all duration-300",
+                        isCharging ? "bg-emerald-400" : 
+                        batteryLevel < 20 ? "bg-red-500 shadow-[0_0_4px_#ef4444]" : "bg-white"
+                      )}
+                      style={{ width: `${Math.max(10, Math.min(100, batteryLevel))}%` }}
+                    />
+                    {/* Battery tip */}
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[1px] h-1 rounded-l-sm bg-current opacity-30" />
+                    {/* Tiny lightning bolt */}
+                    {isCharging && (
+                      <span className="absolute inset-0 flex items-center justify-center text-[6px] font-black text-emerald-300 drop-shadow">⚡</span>
+                    )}
+                  </div>
+                  <span className="text-[6px] font-black opacity-35 tracking-tighter leading-none">{batteryLevel}%</span>
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
       </div>
 
@@ -2896,7 +3469,11 @@ yv.removeEventListener('console-message', handleConsoleMessage);
               style={{
                 background: isLightMode ? 'rgba(252,252,252,0.97)' : 'rgba(8,8,8,0.97)',
                 backdropFilter: 'blur(40px)',
-                borderRadius: `0 0 ${WING_R}px ${WING_R}px`,
+                borderRadius: dockMode === 'left'
+                  ? `0 ${isExpanded ? 40 : 25}px ${isExpanded ? 40 : 25}px 0`
+                  : dockMode === 'right'
+                  ? `${isExpanded ? 40 : 25}px 0 0 ${isExpanded ? 40 : 25}px`
+                  : `0 0 ${WING_R}px ${WING_R}px`,
                 color: isLightMode ? '#111' : '#fff',
               }}
             >
@@ -3062,6 +3639,28 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                           </motion.div>
                         )}
                       </AnimatePresence>
+                    </div>
+
+                    {/* DOCK POSITION CONFIG */}
+                    <div className="flex flex-col gap-3">
+                      <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Alineación</span>
+                      <div className="grid grid-cols-4 gap-1.5 pointer-events-auto">
+                        {(['top', 'floating', 'left', 'right'] as const).map(mode => (
+                          <button
+                            key={mode}
+                            onClick={() => setDockMode(mode)}
+                            className="py-2.5 rounded-xl border font-black text-[9px] uppercase tracking-tighter transition-all"
+                            style={{
+                              background: dockMode === mode ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.03)',
+                              borderColor: dockMode === mode ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.06)',
+                              color: dockMode === mode ? '#60a5fa' : 'inherit',
+                              opacity: dockMode === mode ? 1 : 0.6,
+                            }}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="flex flex-col gap-3">

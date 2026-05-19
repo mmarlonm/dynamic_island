@@ -14626,10 +14626,13 @@ if (process.platform === "win32") {
   app.setAppUserModelId("com.notchly.app");
 }
 let win;
+let isQuitting = false;
 let isExpandedMode = false;
 let currentIslandX = 0;
 let currentWidth = 440;
 let currentHeight = 66;
+let currentDockMode = "top";
+let currentFloatingOffset = 20;
 let isCallActive = false;
 let isControlsActive = false;
 let currentMeetingApp = "Teams";
@@ -14637,6 +14640,7 @@ let currentMicState = false;
 let isUserMuted = false;
 let isUserCamOff = false;
 let meetingExitCounter = 0;
+let lastTimeOverPill = Date.now();
 let proximityInterval = null;
 let systemUpdateInterval = null;
 let volInterval = null;
@@ -14695,11 +14699,19 @@ ipcMain.on("set-is-preview", (_, preview) => {
 ipcMain.on("update-island-pos", (_, x) => {
   currentIslandX = x;
 });
+ipcMain.on("update-island-pos-y", (_, y) => {
+});
+ipcMain.on("set-dock-mode", (_, mode) => {
+  currentDockMode = mode;
+});
+ipcMain.on("set-floating-offset", (_, offset) => {
+  currentFloatingOffset = offset;
+});
 let lastAutoCheckTime = 0;
 ipcMain.on("set-is-expanded", (_, expanded) => {
   isExpandedMode = expanded;
   if (expanded && win) {
-    win.setIgnoreMouseEvents(false, { forward: true });
+    win.setIgnoreMouseEvents(false);
   }
   if (expanded && Date.now() - lastAutoCheckTime > 30 * 60 * 1e3) {
     lastAutoCheckTime = Date.now();
@@ -14717,19 +14729,26 @@ ipcMain.on("set-bubbles-state", (_, s) => {
   isControlsActive = s.controls;
 });
 let isAlwaysOnTop = true;
+let lastIgnoreState = null;
 ipcMain.on("set-always-on-top", (_, flag) => {
-  isAlwaysOnTop = flag;
+  isAlwaysOnTop = true;
   if (win) {
-    win.setAlwaysOnTop(flag, "screen-saver", 1);
+    win.setAlwaysOnTop(true, "screen-saver", 1);
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    console.log(`[MAIN] Always on top set to: ${flag} (Level: screen-saver, Visible: ${win.isVisible()})`);
+    console.log(`[MAIN] Always on top strictly set to: true (Level: screen-saver, Visible: ${win.isVisible()})`);
   }
 });
 ipcMain.on("set-ignore-mouse-events", (_, ignore) => {
   if (ignore) {
-    win == null ? void 0 : win.setIgnoreMouseEvents(true, { forward: true });
+    if (lastIgnoreState !== true) {
+      lastIgnoreState = true;
+      win == null ? void 0 : win.setIgnoreMouseEvents(true, { forward: true });
+    }
   } else {
-    win == null ? void 0 : win.setIgnoreMouseEvents(false);
+    if (lastIgnoreState !== false) {
+      lastIgnoreState = false;
+      win == null ? void 0 : win.setIgnoreMouseEvents(false);
+    }
   }
 });
 function createWindow() {
@@ -14737,7 +14756,7 @@ function createWindow() {
   const { width, height, x, y } = primaryDisplay.bounds;
   win = new BrowserWindow({
     width,
-    height: 800,
+    height,
     x,
     y,
     frame: false,
@@ -14795,6 +14814,12 @@ function createWindow() {
       win.setAlwaysOnTop(true, "screen-saver", 1);
     }
   });
+  win.on("minimize", () => {
+    if (win && !win.isDestroyed()) {
+      win.restore();
+      win.showInactive();
+    }
+  });
   setTimeout(() => {
     requestNotificationAccess();
     startNotifMonitor();
@@ -14806,31 +14831,98 @@ function createWindow() {
   }, 1200);
   const screenCenterX = x + width / 2;
   if (proximityInterval) clearInterval(proximityInterval);
+  let debugCounter = 0;
+  let expansionGraceUntil = 0;
   proximityInterval = setInterval(() => {
     try {
       if (!win || win.isDestroyed()) return;
       const { x: mouseX, y: mouseY } = screen.getCursorScreenPoint();
-      const islandPhysicalX = screenCenterX + (currentIslandX || 0);
-      const halfW = (currentWidth || 440) / 2;
-      const h = currentHeight || 66;
-      const buffer = isExpandedMode ? 10 : 5;
-      const isOverMainIsland = Math.abs(mouseX - islandPhysicalX) < halfW + buffer && mouseY >= y - 20 && mouseY < y + h + buffer;
-      let isOverLeftBubbles = false;
-      if (!isExpandedMode && (isCallActive || isControlsActive)) {
-        const islandLeftEdge = islandPhysicalX - halfW;
-        const bubbleWidth = isCallActive && isControlsActive ? 140 : 70;
-        isOverLeftBubbles = mouseX >= islandLeftEdge - bubbleWidth - 30 && mouseX < islandLeftEdge - 5 && mouseY >= y - 10 && mouseY < y + 80;
+      const inGracePeriod = Date.now() < expansionGraceUntil;
+      const effectiveExpanded = isExpandedMode || inGracePeriod;
+      let effectiveWidth = currentWidth || 440;
+      let effectiveHeight = currentHeight || 66;
+      if (effectiveExpanded && !isExpandedMode) {
+        if (currentDockMode === "left" || currentDockMode === "right") {
+          effectiveWidth = 360;
+          effectiveHeight = 400;
+        } else {
+          effectiveWidth = 748;
+          effectiveHeight = 600;
+        }
       }
-      const isOverLargeView = isExpandedMode && Math.abs(mouseX - islandPhysicalX) < halfW + buffer && mouseY < y + h + buffer;
-      const isOverPill = isOverMainIsland || isOverLeftBubbles || isOverLargeView;
-      if (isOverPill) {
-        win.setIgnoreMouseEvents(false);
+      const halfW = effectiveWidth / 2;
+      const halfH = effectiveHeight / 2;
+      let left = 0, right = 0, top = 0, bottom = 0;
+      const buffer = effectiveExpanded ? 30 : 12;
+      if (currentDockMode === "left") {
+        const islandYVal = y + 96 + halfH;
+        left = x - 10;
+        right = x + effectiveWidth + buffer;
+        top = islandYVal - halfH - buffer;
+        bottom = islandYVal + halfH + buffer;
+      } else if (currentDockMode === "right") {
+        const islandYVal = y + 96 + halfH;
+        left = x + width - effectiveWidth - buffer;
+        right = x + width + 10;
+        top = islandYVal - halfH - buffer;
+        bottom = islandYVal + halfH + buffer;
+      } else if (currentDockMode === "floating") {
+        const islandXVal = screenCenterX + (currentIslandX || 0);
+        const fOffset = currentFloatingOffset || 20;
+        left = islandXVal - halfW - buffer;
+        right = islandXVal + halfW + buffer;
+        top = y + fOffset - buffer;
+        bottom = y + fOffset + effectiveHeight + buffer;
       } else {
-        win.setIgnoreMouseEvents(true, { forward: true });
+        const islandXVal = screenCenterX + (currentIslandX || 0);
+        left = islandXVal - halfW - buffer;
+        right = islandXVal + halfW + buffer;
+        top = y - 20;
+        bottom = y + effectiveHeight + buffer;
+      }
+      const isOverMainIsland = mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
+      debugCounter++;
+      if (debugCounter % 94 === 0) {
+        console.log(`[PROXIMITY] mode=${currentDockMode} expanded=${isExpandedMode} (effective=${effectiveExpanded}) dims=${effectiveWidth}x${effectiveHeight} bounds=[${Math.round(left)},${Math.round(right)},${Math.round(top)},${Math.round(bottom)}] mouse=[${mouseX},${mouseY}] over=${isOverMainIsland} ignore=${lastIgnoreState}`);
+      }
+      let isOverLeftBubbles = false;
+      if ((currentDockMode === "top" || currentDockMode === "floating") && !isExpandedMode && (isCallActive || isControlsActive)) {
+        const islandXVal = screenCenterX + (currentIslandX || 0);
+        const islandLeftEdge = islandXVal - halfW;
+        const bubbleWidth = isCallActive && isControlsActive ? 140 : 70;
+        const bubbleTop = currentDockMode === "floating" ? y + (currentFloatingOffset || 20) - 10 : y - 10;
+        const bubbleBottom = bubbleTop + 90;
+        isOverLeftBubbles = mouseX >= islandLeftEdge - bubbleWidth - 30 && mouseX < islandLeftEdge - 5 && mouseY >= bubbleTop && mouseY < bubbleBottom;
+      }
+      const isOverPill = isOverMainIsland || isOverLeftBubbles;
+      if (isOverPill) {
+        lastTimeOverPill = Date.now();
+        if (lastIgnoreState !== false) {
+          lastIgnoreState = false;
+          win.setIgnoreMouseEvents(false);
+          safeSend(win, "hover-changed", true);
+          if (!isExpandedMode) {
+            expansionGraceUntil = Date.now() + 1e3;
+          }
+        }
+      } else {
+        const timeSinceOverPill = Date.now() - lastTimeOverPill;
+        if (timeSinceOverPill > 350) {
+          if (lastIgnoreState !== true) {
+            lastIgnoreState = true;
+            win.setIgnoreMouseEvents(true, { forward: true });
+            safeSend(win, "hover-changed", false);
+          }
+        }
       }
     } catch (e) {
     }
   }, 32);
+  win.on("close", (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+    }
+  });
   win.on("closed", () => {
     if (proximityInterval) clearInterval(proximityInterval);
     if (systemUpdateInterval) clearInterval(systemUpdateInterval);
@@ -15419,6 +15511,7 @@ Set-RadioState -RadioKind $args[0]
     }
   });
   app.on("before-quit", () => {
+    isQuitting = true;
     mediaProc == null ? void 0 : mediaProc.kill();
     if (typeof psMeet !== "undefined" && psMeet) psMeet.kill();
     if (typeof psNotif !== "undefined" && psNotif) psNotif.kill();
@@ -15426,9 +15519,8 @@ Set-RadioState -RadioKind $args[0]
 } catch (err) {
   console.error("[MAIN] Setup Error:", err);
 }
-app.on("window-all-closed", () => {
-  win = null;
-  if (process.platform !== "darwin") app.quit();
+app.on("window-all-closed", (e) => {
+  e.preventDefault();
 });
 export {
   RENDERER_DIST,
