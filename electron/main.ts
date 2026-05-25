@@ -310,6 +310,12 @@ ipcMain.handle('get-system-audio-id', async () => {
   return sources[0]?.id; // System audio is typically shared on Windows screen sources
 });
 
+ipcMain.on('app-quit', () => {
+  isQuitting = true;
+  app.quit();
+});
+
+
 ipcMain.removeAllListeners('set-weather-location');
 ipcMain.on('set-weather-location', (_e, loc: string) => {
   weatherLocation = loc || '';
@@ -354,7 +360,6 @@ ipcMain.on('set-always-on-top', (_, flag) => {
   if (win) {
     win.setAlwaysOnTop(true, 'screen-saver', 1);
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    console.log(`[MAIN] Always on top strictly set to: true (Level: screen-saver, Visible: ${win.isVisible()})`);
   }
 });
 
@@ -403,7 +408,6 @@ function createWindow() {
   }
 
   win.webContents.on('did-finish-load', () => {
-    console.log('[MAIN] Window finished loading');
     win?.setTitle('NOTCHLY_ALIVE');
     win?.show(); 
     win?.setAlwaysOnTop(true, 'screen-saver');
@@ -420,7 +424,6 @@ function createWindow() {
     if (win && !win.isDestroyed()) {
       win.setAlwaysOnTop(true, 'screen-saver', 1);
       win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      console.log('[MAIN] Always on top re-enforced after startup delay');
     }
   }, 5000);
 
@@ -529,12 +532,8 @@ function createWindow() {
       }
 
       const isOverMainIsland = mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
-      
-      // Debug log every 3 seconds to verify bounds
+      // Proximity counter
       debugCounter++;
-      if (debugCounter % 94 === 0) {
-        console.log(`[PROXIMITY] mode=${currentDockMode} expanded=${isExpandedMode} (effective=${effectiveExpanded}) dims=${effectiveWidth}x${effectiveHeight} bounds=[${Math.round(left)},${Math.round(right)},${Math.round(top)},${Math.round(bottom)}] mouse=[${mouseX},${mouseY}] over=${isOverMainIsland} ignore=${lastIgnoreState}`);
-      }
 
       // 2. Detection zone for left-side bubbles (only if active in top/floating mode)
       let isOverLeftBubbles = false;
