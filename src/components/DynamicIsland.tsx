@@ -1630,11 +1630,12 @@ export const DynamicIsland = () => {
   const timerRef = useRef<any>(null);
   const lastCommandTimeRef = useRef(0);
   const volDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [superPill, setSuperPill] = useState(false);
+  const [superPill, setSuperPill] = useState(() => JSON.parse(localStorage.getItem('superPill') || 'false'));
   const [superPillMode, setSuperPillMode] = useState<'Auto' | 'Multimedia' | 'Clima'>('Auto');
   const [dockMode, setDockMode] = useState<'top' | 'floating' | 'left' | 'right'>(() => (localStorage.getItem('dockMode') as any) || 'top');
   const [floatingOffset] = useState<number>(6);
   const [auraColor, setAuraColor] = useState(() => localStorage.getItem('auraColor') || '#3b82f6');
+  const stopColorVal = (auraColor && auraColor.startsWith('url(')) ? '#a855f7' : (auraColor || '#3b82f6');
   const [showPreview, setShowPreview] = useState(false);
   const [visitedViews, setVisitedViews] = useState<Set<string>>(new Set(['Resumen']));
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -1706,7 +1707,10 @@ export const DynamicIsland = () => {
         try {
           const ipc = (window as any).ipcRenderer;
           const sourceId = await ipc?.invoke('get-system-audio-id');
-          if (!sourceId || !active) return;
+          if (!sourceId) {
+            throw new Error('No system audio ID available');
+          }
+          if (!active) return;
 
           const stream = await (window as any).navigator.mediaDevices.getUserMedia({
             audio: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } },
@@ -2437,12 +2441,13 @@ yv.removeEventListener('console-message', handleConsoleMessage);
           transition={{ type: 'spring', stiffness: 450, damping: 32, mass: 0.8 }}
         >
         {/* UNIFIED BACKGROUND SVG LAYER — Production Fix & Subtle Drop */}
-        <div className="absolute inset-0 pointer-events-none z-[-1] overflow-visible">
+        <div className="absolute -inset-[30px] pointer-events-none z-[-1] overflow-visible">
           <svg width="100%" height="100%" shapeRendering="geometricPrecision" style={{ display: 'block', overflow: 'visible' }}>
 
              {(() => {
                 const isLarge = showSettings || isExpanded;
                 const isPreview = showPreview && activeView === 'Multimedia';
+
                 
                 // Shape morphing based on template
                 
@@ -2484,10 +2489,10 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                     })();
 
                 return (
-
-                  <>
+                  <g transform="translate(30, 30)">
                     {showAura && auraColor && (
                       <motion.path
+                        key={`aura-${dockMode}`}
                         initial={false}
                         animate={{ d: islandD }}
                         fill="none"
@@ -2498,6 +2503,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                       />
                     )}
                     <motion.path
+                      key={`bg-${dockMode}`}
                       initial={false}
                       animate={{ d: islandD }}
                       fill={isLightMode ? 'rgba(253,253,253,0.75)' : 'rgba(10,10,10,0.85)'}
@@ -2509,7 +2515,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
 
                     {/* ── QUANTUM PULSE AURA (Innovative Rhythm System) ── */}
                     <AnimatePresence>
-                      {superPill && !isLarge && media.isPlaying && showAura && (() => {
+                      {(superPill || dockMode === 'left' || dockMode === 'right') && !isLarge && media.isPlaying && showAura && (() => {
                         const mi = musicIntensity || 0;
                         const bp = beatPulse || 0;
                         const defH = h + bp * 24; // React relative to body height
@@ -2553,15 +2559,16 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                         }
 
                         const getTransformOrigin = () => {
-                          if (dockMode === 'left') return 'left center';
-                          if (dockMode === 'right') return 'right center';
-                          if (dockMode === 'floating') return 'center center';
-                          return 'center top';
+                          if (dockMode === 'left') return `0px ${H / 2}px`;
+                          if (dockMode === 'right') return `${W}px ${H / 2}px`;
+                          if (dockMode === 'floating') return `${totalW / 2}px ${h / 2}px`;
+                          return `${totalW / 2}px 0px`;
                         };
 
                         return (
-                          <g key="quantum-pulse-system">
+                          <g key={`quantum-pulse-system-${dockMode}`}>
                             <motion.path
+                              key={`quantum-aura-path-${dockMode}`}
                               d={auraD}
                               fill="none"
                               stroke="url(#rgQuantum)"
@@ -2575,7 +2582,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                             />
                             {[1, 1.04, 1.08].map((scale, i) => (
                               <motion.path
-                                key={i}
+                                key={`quantum-pulse-path-${i}-${dockMode}`}
                                 d={spineD}
                                 fill="none"
                                 stroke="url(#rgPulse)"
@@ -2592,7 +2599,7 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                             ))}
                             {[0.2, 0.5, 0.8].map((offset, i) => (
                               <motion.circle
-                                key={`p-${i}`}
+                                key={`quantum-particle-${i}-${dockMode}`}
                                 r={1 + bp * 3}
                                 fill="#fff"
                                 animate={{
@@ -2607,30 +2614,30 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                         );
                       })()}
                     </AnimatePresence>
-                  </>
+                  </g>
                 );
               })()}
 
 
               <defs>
                 <linearGradient id="rgQuantum" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor={auraColor} />
-                  <stop offset="30%" stopColor={auraColor} stopOpacity="0.8" />
-                  <stop offset="70%" stopColor={auraColor} stopOpacity="0.5" />
-                  <stop offset="100%" stopColor={auraColor} />
+                  <stop offset="0%" stopColor={stopColorVal} />
+                  <stop offset="30%" stopColor={stopColorVal} stopOpacity="0.8" />
+                  <stop offset="70%" stopColor={stopColorVal} stopOpacity="0.5" />
+                  <stop offset="100%" stopColor={stopColorVal} />
                   <animate attributeName="x1" values="0%;-100%;0%" dur="3s" repeatCount="indefinite" />
                   <animate attributeName="x2" values="100%;200%;100%" dur="3s" repeatCount="indefinite" />
                 </linearGradient>
                 <linearGradient id="rgPulse" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor={auraColor} />
+                  <stop offset="0%" stopColor={stopColorVal} />
                   <stop offset="50%" stopColor="#ffffff" />
-                  <stop offset="100%" stopColor={auraColor} />
+                  <stop offset="100%" stopColor={stopColorVal} />
                   <animate attributeName="x1" values="-50%;150%;-50%" dur="1.2s" repeatCount="indefinite" />
                   <animate attributeName="x2" values="0%;200%;0%" dur="1.2s" repeatCount="indefinite" />
                 </linearGradient>
                 <radialGradient id="rgSpark">
                   <stop offset="10%" stopColor="white" />
-                  <stop offset="90%" stopColor={auraColor} stopOpacity="0" />
+                  <stop offset="90%" stopColor={stopColorVal} stopOpacity="0" />
                 </radialGradient>
                 <linearGradient id="rainbowGradient" x1="0%" y1="0%" x2="100%" y2="0%">
                   <stop offset="0%" stopColor="#ff0000" />
@@ -5110,7 +5117,11 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                     <div className="flex flex-col gap-3">
                       <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Minimalismo</span>
                     <button
-                      onClick={() => setSuperPill(p => !p)}
+                      onClick={() => {
+                        const next = !superPill;
+                        setSuperPill(next);
+                        localStorage.setItem('superPill', JSON.stringify(next));
+                      }}
                       className="flex items-center justify-between px-4 py-3 rounded-2xl border transition-all font-black text-[11px] uppercase pointer-events-auto"
                       style={{
                         background: superPill ? (isLightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)') : 'transparent',

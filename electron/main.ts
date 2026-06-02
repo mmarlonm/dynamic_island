@@ -11,10 +11,35 @@ import { autoUpdater } from 'electron-updater'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 process.env.APP_ROOT = path.join(__dirname, '..')
 
+// Crash and Exception Logger
+const logCrash = (type: string, msg: string) => {
+  try {
+    const logFilePath = 'c:\\Users\\chiva\\Documents\\devMGM\\dynamic_v2\\crash_log.txt';
+    fs.appendFileSync(logFilePath, `[${new Date().toISOString()}] [${type}] ${msg}\n`);
+  } catch (e) {}
+};
+
+process.on('uncaughtException', (err) => {
+  logCrash('UNCAUGHT_EXCEPTION', err.stack || err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logCrash('UNHANDLED_REJECTION', String(reason));
+});
+
+ipcMain.on('renderer-error', (_, errText) => {
+  logCrash('RENDERER_ERROR', errText);
+});
+
+
 // Resource Path Helper for Production
 const getResPath = (relPath: string) => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, relPath);
+    const prodPath = path.join(process.resourcesPath, relPath);
+    if (fs.existsSync(prodPath)) return prodPath;
+    const prodElectronPath = path.join(process.resourcesPath, 'electron', relPath);
+    if (fs.existsSync(prodElectronPath)) return prodElectronPath;
+    return prodPath;
   }
   const devPath = path.join(process.cwd(), relPath);
   if (fs.existsSync(devPath)) return devPath;
