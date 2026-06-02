@@ -2531,10 +2531,11 @@ yv.removeEventListener('console-message', handleConsoleMessage);
                           spineD = `M ${r_spine} ${yTopSpine} H ${totalW - r_spine} A ${r_spine} ${r_spine} 0 0 1 ${totalW} ${yTopSpine + r_spine} V ${yBottomSpine - r_spine} A ${r_spine} ${r_spine} 0 0 1 ${totalW - r_spine} ${yBottomSpine} H ${r_spine} A ${r_spine} ${r_spine} 0 0 1 0 ${yBottomSpine - r_spine} V ${yTopSpine + r_spine} A ${r_spine} ${r_spine} 0 0 1 ${r_spine} ${yTopSpine} Z`;
 
                           const r_aura = r_spine + 4;
+                          const xLeft = -4;
+                          const xRight = totalW + 4;
                           const yTopAura = yTopSpine - 4;
                           const yBottomAura = yBottomSpine + 4;
-                          const auraW = totalW + 4;
-                          auraD = `M ${r_aura} ${yTopAura} H ${auraW - r_aura} A ${r_aura} ${r_aura} 0 0 1 ${totalW + 4} ${yTopAura + r_aura} V ${yBottomAura - r_aura} A ${r_aura} ${r_aura} 0 0 1 ${auraW - r_aura} ${yBottomAura} H ${r_aura} A ${r_aura} ${r_aura} 0 0 1 -4 ${yBottomAura - r_aura} V ${yTopAura + r_aura} A ${r_aura} ${r_aura} 0 0 1 ${r_aura} ${yTopAura} Z`;
+                          auraD = `M ${xLeft + r_aura} ${yTopAura} H ${xRight - r_aura} A ${r_aura} ${r_aura} 0 0 1 ${xRight} ${yTopAura + r_aura} V ${yBottomAura - r_aura} A ${r_aura} ${r_aura} 0 0 1 ${xRight - r_aura} ${yBottomAura} H ${xLeft + r_aura} A ${r_aura} ${r_aura} 0 0 1 ${xLeft} ${yBottomAura - r_aura} V ${yTopAura + r_aura} A ${r_aura} ${r_aura} 0 0 1 ${xLeft + r_aura} ${yTopAura} Z`;
                         } else if (dockMode === 'left') {
                           const pulseW = W + bp * 16;
                           const pulseH = H;
